@@ -52,7 +52,7 @@ Use local speech probability/VAD, input peak/RMS and noise-floor measurements as
 
 ## Controls and observability
 
-Button gestures and LED state are local and work offline. Suggested states: blue idle, green listening, amber processing, cyan speaking, solid red muted, pulsing red error/unpaired. Colors/patterns are provisional until checked against the physical three-LED HAT; status must also be queryable without relying on color. Volume is software PCM gain with a safe cap and distinct levels. “Stop” cancels current output regardless of whether agent work continues; do not confuse audio stop with canceling the user's underlying instruction.
+Button gestures and LED state are local and work offline. The first activation mode is a double press; one press toggles mute after the double-press window. Suggested states: blue idle, green listening, amber processing, cyan speaking, solid red muted, pulsing red error/unpaired. Colors/patterns are provisional until checked against the physical three-LED HAT; status must also be queryable without relying on color. Volume is software PCM gain with a safe cap and distinct levels. “Stop” cancels current output regardless of whether agent work continues; do not confuse audio stop with canceling the user's underlying instruction.
 
 Expose timing spans for wake, endpointing, network send, STT ready/transcript, agent first commentary, TTS first audio, playout start and interrupt acknowledgement. Never log raw audio or credentials by default. Define freshness and sequence numbers for device metadata and reject stale/replayed media. Test link loss, server restart, GPU standby/wake and concurrent messages from the same person on Matrix.
 

@@ -19,9 +19,9 @@ The MAX98357A receives digital PCM directly: the WM8960 playback mixer is **not*
 
 ## First milestone: core assistant
 
-- A short button press toggles physical mute. Muted means microphone frames are not sent and wake-word recognition is disabled; the LED shows this unambiguously. A hardware mic power gate would be stronger than software mute, but is not part of this board profile.
-- A long press enters volume-adjustment mode; subsequent short presses step through bounded levels, then the mode times out. Exact thresholds and color patterns need on-device usability tests.
-- Local “Nova” wake detection opens a bounded listening window. Valid speech/agent activity may extend it; expiration returns to idle. “Stop” immediately cancels local playback and listening. Both words need licensed models and far-field/TV-noise tests before production.
+- A short button press toggles physical mute after a 350-ms double-press window. Muted means microphone frames are not sent; the LED shows this unambiguously. A hardware mic power gate would be stronger than software mute, but is not part of this board profile.
+- A double press opens a bounded conversation window (and unmutes if necessary). This is the agreed first activation mode while a local “Nova” wake model is selected and validated. A long hold adjusts bounded volume; the physical gestures still need on-device usability tests.
+- Later local “Nova” wake detection should open the same listening window. Valid speech/agent activity may extend it; expiration returns to idle. “Stop” should immediately cancel local playback and listening. Both words need licensed models and far-field/TV-noise tests before production.
 - LEDs distinguish unpaired/offline, idle, listening, processing, speaking, muted and error. Color is advisory, while physical mute state must never be ambiguous.
 - OpenClaw remains the single agent core. Inbound device speech is bound to an approved agent and enters the same session/steering path as that persona's Matrix messages. There is no Pi-side agent or separate conversation history.
 
@@ -31,7 +31,7 @@ This assistant can become both a **communication endpoint** and a **managed devi
 
 ## Bring-up gates
 
-1. Verify named ALSA capture/playback, channel map, GPIO17 and three LEDs; record a local non-sensitive loopback sample. Keep the Ghostbox source repository intact but do not install it.
+1. Verify named ALSA capture/playback, channel map, GPIO17 and three LEDs; collect content-free level metrics and a short speaker probe. Keep the Ghostbox source repository intact but do not install it.
 2. Measure end-to-end speaker-to-mic delay and test local AEC against the actual playout reference. Prefer native WebRTC AudioProcessing with 10 ms frames; avoid a second aggressive AGC competing with the server's speech-level controller.
 3. Provision Wi-Fi through a time-limited, button-activated setup hotspot and then enroll the device separately with the Gateway; see the [security and setup design](docs/provisioning.md). No password or bearer token in this repository or process arguments. Require authenticated encryption even on the home LAN.
 4. Attach a secure device-audio transport to OpenClaw's existing meeting/realtime engine and server STT/TTS pipeline. Resolve the **same agent-specific voice profile** as Matrix calling: `think off`, enabled commentary, tool/message policy and other overrides belong to the bound agent, not this hardware. Test greeting, commentary, barge-in, stop, reconnect and queued second utterances. No separate device-side agent loop.

@@ -133,6 +133,9 @@ def main() -> None:
         if "gatewayTokenPath" in config
         else None
     )
+    connect_host = config.get("gatewayConnectHost")
+    if connect_host is not None and not isinstance(connect_host, str):
+        parser.error("gatewayConnectHost must be a private IP address")
     with AudioProcessor(_required_path(config, "apmLibraryPath")) as processor:
         audio = ReSpeakerAudio(processor)
         try:
@@ -141,6 +144,7 @@ def main() -> None:
             node = GatewayNode(
                 config["gatewayUrl"], identity, bridge.command,
                 token_path=token_path, gateway_token_path=gateway_token_path,
+                connect_host=connect_host,
             )
             button = ReSpeakerButton()
             try:

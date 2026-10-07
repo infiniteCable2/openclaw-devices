@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from ipaddress import ip_address
 import json
 from pathlib import Path
 import ssl
@@ -96,6 +97,7 @@ class GatewayNode:
         *,
         token_path: Path,
         gateway_token_path: Path | None = None,
+        connect_host: str | None = None,
     ) -> None:
         parsed = urlsplit(url)
         if (
@@ -108,6 +110,16 @@ class GatewayNode:
         ):
             raise ValueError("voiceassistant requires certificate-validated wss://")
         self.url = url
+        if connect_host is not None:
+            try:
+                address = ip_address(connect_host)
+            except ValueError as error:
+                raise ValueError("connect_host must be a private IP address") from error
+            if not address.is_private or address.is_loopback or address.is_link_local:
+                raise ValueError("connect_host must be a private IP address")
+        self.connect_host = connect_host
+        self.tls_name = parsed.hostname
+        self.port = parsed.port or 443
         self.identity = identity
         self.handler = handler
         self.token_path = token_path
@@ -164,7 +176,13 @@ class GatewayNode:
         gateway_token = None if device_token else self._read_secret(self.gateway_token_path)
         # The default context validates both certificate chain and hostname.
         context = ssl.create_default_context()
-        async with connect(self.url, ssl=context, max_size=2_000_000, ping_interval=20) as socket:
+        # The TCP destination can be the LAN address while the URL remains the
+        # certificate identity. This never disables chain or hostname checks.
+        async with connect(
+            self.url, ssl=context, proxy=None, max_size=2_000_000, ping_interval=20,
+            **({"host": self.connect_host, "port": self.port,
+                "server_hostname": self.tls_name} if self.connect_host else {}),
+        ) as socket:
             challenge = _frame(await asyncio.wait_for(socket.recv(), timeout=15))
             if challenge.get("type") != "event" or challenge.get("event") != "connect.challenge":
                 raise RuntimeError("Gateway omitted connect challenge")

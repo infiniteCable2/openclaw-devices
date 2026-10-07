@@ -6,4 +6,4 @@ Server-side OpenClaw integration belongs in the OpenClaw fork or `openclaw-exten
 
 Do not commit pairing credentials, certificates, local recordings, model downloads or hardware-specific secrets. Machine-local `AGENTS.md` instructions and `.local/` data are ignored. A new device is not trusted merely because it is on the LAN: it must be enrolled, bound to an allowed agent and revocable.
 
-Status: the Pi hardware was inventoried and the obsolete Ghostbox runtime retired. The new OpenClaw voice client is **not yet deployed or paired**; see the [integration design](voiceassistant/docs/architecture.md) for the native Talk transport gap to resolve first.
+Status: the Pi hardware was inventoried and the obsolete Ghostbox runtime retired. The new OpenClaw voice client is **not yet deployed or paired**; see the [integration design](voiceassistant/docs/architecture.md) for the device-audio transport and pairing work that remains.

@@ -16,7 +16,7 @@ Prefer OpenClaw's existing device pairing: a device presents its signed identity
 
 For this fleet, prefer explicit approval even on LAN: OpenClaw currently allows silent loopback pairing and optional SSH/CIDR auto-approval. The server settings and existing nodes must be audited before changing that global policy. Device identity alone does not select a persona: a separate durable record binds device ID to `siteId`, allowed agent(s), communication modes and sensor/actuator capabilities. New or widened capabilities require explicit approval. Removal revokes the identity and active sessions.
 
-The small voice client must implement only the native device identity and relevant Talk/media subset. If OpenClaw's protocol does not support this without an oversized node runtime, extend its public Gateway contract narrowly rather than inventing an unrelated long-lived token. Do not place setup codes or resulting credentials in repository config, release archives or command-line arguments.
+The small voice client must implement only the native device identity and media command surface needed to back the existing meeting/realtime engine's audio transport. If OpenClaw's node protocol cannot support this without an oversized node runtime, extend its public Gateway contract narrowly rather than inventing an unrelated long-lived token. Do not place setup codes or resulting credentials in repository config, release archives or command-line arguments.
 
 ## 3. Encrypted local and remote routes
 

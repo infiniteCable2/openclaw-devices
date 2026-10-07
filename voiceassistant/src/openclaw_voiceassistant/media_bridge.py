@@ -44,6 +44,7 @@ class MediaBridge:
         self._capture_resampler: PcmResampler | None = None
         self._playback_resampler: PcmResampler | None = None
         self._lifecycle = asyncio.Lock()
+        self._push_lock = asyncio.Lock()
 
     def note_wake(self) -> None:
         if self.controls.can_capture:
@@ -182,10 +183,28 @@ class MediaBridge:
         return {"base64": base64.b64encode(b"".join(chunks)).decode("ascii"), "closed": False}
 
     async def push(self, params: dict[str, Any]) -> dict[str, Any]:
-        async with self._lifecycle:
-            return self._push_unlocked(params)
+        # Serialize resampler input, but never hold the lifecycle lock while
+        # waiting for playout capacity: clear/stop must preempt a slow writer.
+        async with self._push_lock:
+            async with self._lifecycle:
+                prepared = self._prepare_push(params)
+            if isinstance(prepared, dict):
+                return prepared
+            bridge_id, generation, accepted_bytes, frames = prepared
+            for frame in frames:
+                if generation != self._generation or bridge_id != self.bridge_id:
+                    return {"dropped": True, "outputGeneration": self._generation}
+                try:
+                    await asyncio.wait_for(self._output.put((generation, frame)), timeout=3)
+                except TimeoutError as error:
+                    raise RuntimeError("audio playout backpressure timed out") from error
+            if generation != self._generation or bridge_id != self.bridge_id:
+                return {"dropped": True, "outputGeneration": self._generation}
+            return {"acceptedBytes": accepted_bytes, "outputGeneration": generation}
 
-    def _push_unlocked(self, params: dict[str, Any]) -> dict[str, Any]:
+    def _prepare_push(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any] | tuple[str, int, int, list[bytes]]:
         self._require_bridge(params)
         self._last_media_command_at = time.monotonic()
         generation = params.get("outputGeneration", self._generation)
@@ -199,11 +218,12 @@ class MediaBridge:
             raise ValueError("invalid PCM payload")
         converted = self._playback_resampler.process(pcm) if self._playback_resampler else b""
         self._output_remainder.extend(converted)
+        frames: list[bytes] = []
         while len(self._output_remainder) >= BYTES_PER_FRAME:
             frame = bytes(self._output_remainder[:BYTES_PER_FRAME])
             del self._output_remainder[:BYTES_PER_FRAME]
-            self._output.put_nowait((generation, frame))
-        return {"acceptedBytes": len(pcm), "outputGeneration": generation}
+            frames.append(frame)
+        return self.bridge_id, generation, len(pcm), frames
 
     async def clear(self, params: dict[str, Any]) -> dict[str, Any]:
         async with self._lifecycle:

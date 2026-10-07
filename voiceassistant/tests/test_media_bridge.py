@@ -80,6 +80,57 @@ class MediaBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(received["base64"], "")
             await bridge.stop(started["bridgeId"])
 
+    async def test_large_audio_push_uses_bounded_playout_backpressure(self):
+        audio = FakeAudio()
+        controls = Controls(paired=True, muted=False)
+        controls.wake(0)
+        bridge = MediaBridge(audio, controls)
+        with patch("openclaw_voiceassistant.media_bridge.PcmResampler", FakeResampler):
+            started = await bridge.start()
+            pcm = bytes(320 * 200)  # Two seconds; larger than the one-second queue.
+            result = await bridge.push({
+                "bridgeId": started["bridgeId"],
+                "outputGeneration": started["outputGeneration"],
+                "base64": base64.b64encode(pcm).decode(),
+            })
+            self.assertEqual(result["acceptedBytes"], len(pcm))
+            await bridge.stop(started["bridgeId"])
+
+    async def test_clear_preempts_backpressured_push(self):
+        writing = Event()
+        release = Event()
+
+        class BlockedAudio(FakeAudio):
+            def write(self, pcm, volume, generation):
+                writing.set()
+                release.wait(timeout=2)
+                super().write(pcm, volume, generation)
+
+        audio = BlockedAudio()
+        controls = Controls(paired=True, muted=False)
+        controls.wake(0)
+        bridge = MediaBridge(audio, controls)
+        with patch("openclaw_voiceassistant.media_bridge.PcmResampler", FakeResampler):
+            started = await bridge.start()
+            generation = started["outputGeneration"]
+            pushing = asyncio.create_task(bridge.push({
+                "bridgeId": started["bridgeId"],
+                "outputGeneration": generation,
+                "base64": base64.b64encode(bytes(320 * 200)).decode(),
+            }))
+            try:
+                self.assertTrue(await asyncio.to_thread(writing.wait, 2))
+                clearing = asyncio.create_task(bridge.clear({
+                    "bridgeId": started["bridgeId"],
+                    "outputGeneration": generation + 1,
+                }))
+                await asyncio.sleep(0)
+            finally:
+                release.set()
+            await clearing
+            self.assertTrue((await pushing)["dropped"])
+            await bridge.stop(started["bridgeId"])
+
     async def test_start_rolls_back_if_playback_cannot_initialize(self):
         class BrokenAudio(FakeAudio):
             def clear_playback(self, generation):

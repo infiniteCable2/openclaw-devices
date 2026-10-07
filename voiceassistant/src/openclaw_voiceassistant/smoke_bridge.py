@@ -10,12 +10,12 @@ import time
 
 from .apm import AudioProcessor
 from .audio_io import ReSpeakerAudio
-from .controls import Controls
+from .controls import Controls, Mode
 from .media_bridge import MediaBridge
 
 
 async def run(library_path: Path, seconds: float) -> None:
-    controls = Controls(paired=True, muted=False)
+    controls = Controls(paired=True, mode=Mode.CONTINUOUS)
     controls.wake(time.monotonic())
     with AudioProcessor(library_path) as processor:
         audio = ReSpeakerAudio(processor)

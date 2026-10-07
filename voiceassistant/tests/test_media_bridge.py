@@ -39,6 +39,29 @@ class FakeAudio:
 
 
 class MediaBridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_post_keyword_audio_is_delivered_before_new_capture(self):
+        controls = Controls(paired=True, mode=Mode.WAKE_WORD)
+        controls.wake(0)
+        bridge = MediaBridge(FakeAudio(), controls)
+        tail = bytes([1, 0]) * 160
+        bridge.queue_wake_audio([tail] * 15)
+        with patch("openclaw_voiceassistant.media_bridge.PcmResampler", FakeResampler):
+            started = await bridge.start()
+            received = await bridge.pull({"bridgeId": started["bridgeId"], "timeoutMs": 250})
+            decoded = base64.b64decode(received["base64"])
+            self.assertTrue(decoded.startswith(tail * 15), (len(decoded), decoded[:20]))
+            self.assertEqual(bridge._wake_audio, [])
+            await bridge.stop(started["bridgeId"])
+
+    async def test_pending_wake_audio_is_discarded_on_mute(self):
+        controls = Controls(paired=True, mode=Mode.WAKE_WORD)
+        controls.wake(0)
+        bridge = MediaBridge(FakeAudio(), controls)
+        bridge.queue_wake_audio([bytes(320)])
+        controls.mode = Mode.MUTED
+        await bridge.stop()
+        self.assertEqual(bridge._wake_audio, [])
+
     async def test_mute_admission_and_bounded_lifecycle(self):
         audio = FakeAudio()
         controls = Controls(paired=True)

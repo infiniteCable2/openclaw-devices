@@ -21,7 +21,7 @@ from .gateway_identity import DeviceIdentity
 from .gateway_node import GatewayNode
 from .hardware import ReSpeakerButton, ReSpeakerLeds
 from .media_bridge import MediaBridge
-from .wake_word import NovaWakeDetector
+from .wake_word import GatedWakeDetector, NovaWakeDetector
 
 
 class Button(Protocol):
@@ -118,6 +118,8 @@ class DeviceApp:
         actions.extend(self.controls.tick(now))
         if Action.WAKE_REQUESTED in actions:
             self.bridge.note_wake()
+        if not self.controls.can_capture:
+            self.bridge.discard_wake_audio()
         if not self.controls.can_capture and self.bridge.bridge_id is not None:
             await self.bridge.stop()
         self.leds.show(self.controls.indicator, self.controls.brightness)
@@ -125,21 +127,67 @@ class DeviceApp:
     async def _wake_loop(self) -> None:
         if self.wake_detector is None or self.audio_input is None:
             raise RuntimeError("local wake-word detector is required")
+        # Replaying pre-roll through KWS can take hundreds of milliseconds on
+        # the Pi. Keep draining ALSA independently so that replay does not
+        # overwrite the next part of the user's utterance.
+        frames: asyncio.Queue[bytes] = asyncio.Queue(maxsize=300)
+        capture = asyncio.create_task(self._wake_capture_loop(frames))
         was_armed = False
+        try:
+            while True:
+                if capture.done():
+                    await capture  # Surface a broken microphone, never limp on.
+                if not self.controls.can_detect_wake:
+                    if was_armed:
+                        self.wake_detector.reset()
+                        was_armed = False
+                    self._discard_wake_frames(frames)
+                    await asyncio.sleep(0.02)
+                    continue
+                was_armed = True
+                try:
+                    pcm = await asyncio.wait_for(frames.get(), timeout=0.02)
+                except asyncio.TimeoutError:
+                    continue
+                detected = (
+                    await asyncio.to_thread(self.wake_detector.feed, pcm)
+                    if self.controls.can_detect_wake else False
+                )
+                if detected and self.controls.can_detect_wake:
+                    self.controls.wake(time.monotonic())
+                    self.bridge.note_wake()
+                    self.leds.show(self.controls.indicator, self.controls.brightness)
+                    # Preserve frames captured while the pre-roll was being
+                    # decoded; they may already contain the following command.
+                    self.bridge.queue_wake_audio(self._drain_wake_frames(frames))
+        finally:
+            capture.cancel()
+            await asyncio.gather(capture, return_exceptions=True)
+
+    async def _wake_capture_loop(self, frames: asyncio.Queue[bytes]) -> None:
+        if self.audio_input is None:
+            raise RuntimeError("local wake-word microphone is required")
         while True:
             if not self.controls.can_detect_wake:
-                if was_armed:
-                    self.wake_detector.reset()
-                    was_armed = False
                 await asyncio.sleep(0.02)
                 continue
-            was_armed = True
             pcm = await asyncio.to_thread(self.audio_input.read)
-            detected = await asyncio.to_thread(self.wake_detector.feed, pcm) if self.controls.can_detect_wake else False
-            if detected and self.controls.can_detect_wake:
-                self.controls.wake(time.monotonic())
-                self.bridge.note_wake()
-                self.leds.show(self.controls.indicator, self.controls.brightness)
+            if self.controls.can_detect_wake:
+                # A full 3-second queue means the KWS worker cannot keep up.
+                # Fail closed rather than silently dropping parts of "Nova".
+                frames.put_nowait(pcm)
+
+    @staticmethod
+    def _discard_wake_frames(frames: asyncio.Queue[bytes]) -> None:
+        while not frames.empty():
+            frames.get_nowait()
+
+    @staticmethod
+    def _drain_wake_frames(frames: asyncio.Queue[bytes]) -> list[bytes]:
+        pending = []
+        while not frames.empty():
+            pending.append(frames.get_nowait())
+        return pending
 
     async def _button_loop(self) -> None:
         while True:
@@ -206,7 +254,7 @@ def main() -> None:
         try:
             controls = Controls()
             bridge = MediaBridge(audio, controls)
-            detector = NovaWakeDetector(_required_path(config, "wakeModelDirectory"))
+            detector = GatedWakeDetector(NovaWakeDetector(_required_path(config, "wakeModelDirectory")))
             button = ReSpeakerButton()
             try:
                 leds = ReSpeakerLeds()

@@ -8,18 +8,20 @@ import resource
 import statistics
 import time
 
-from openclaw_voiceassistant.wake_word import NovaWakeDetector
+from openclaw_voiceassistant.wake_word import GatedWakeDetector, NovaWakeDetector
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", type=Path, required=True)
     parser.add_argument("--seconds", type=int, default=10)
+    parser.add_argument("--mode", choices=("continuous", "gated"), default="gated")
     args = parser.parse_args()
     if not 1 <= args.seconds <= 60:
         parser.error("seconds must be between 1 and 60")
     started = time.perf_counter()
-    detector = NovaWakeDetector(args.model_dir)
+    keyword = NovaWakeDetector(args.model_dir)
+    detector = GatedWakeDetector(keyword) if args.mode == "gated" else keyword
     load_ms = (time.perf_counter() - started) * 1_000
     frame = bytes(320)
     latencies = []
@@ -36,6 +38,11 @@ def main() -> None:
     print(f"silence_feed_wall_ms={(time.perf_counter() - feed_started) * 1_000:.1f}")
     print(f"silence_feed_cpu_ms={(time.process_time() - cpu_started) * 1_000:.1f}")
     print(f"silence_detections={detections}")
+    print(f"mode={args.mode}")
+    if isinstance(detector, GatedWakeDetector):
+        print(f"frames_seen={detector.frames_seen}")
+        print(f"frames_decoded={detector.frames_decoded}")
+        print(f"activations={detector.activations}")
     print(f"peak_rss_kb={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}")
     detector.reset()
     print("stream_reset_ok=true")

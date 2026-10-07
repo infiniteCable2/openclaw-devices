@@ -1,5 +1,6 @@
 import unittest
 import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 
 from openclaw_voiceassistant.app import DeviceApp, _system_power
@@ -29,9 +30,16 @@ class FakeBridge:
         self.bridge_id = None
         self.wakes = 0
         self.stops = 0
+        self.wake_audio = []
 
     def note_wake(self):
         self.wakes += 1
+
+    def queue_wake_audio(self, frames):
+        self.wake_audio = frames
+
+    def discard_wake_audio(self):
+        self.wake_audio = []
 
     async def stop(self):
         self.bridge_id = None
@@ -113,6 +121,34 @@ class DeviceAppTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(controls.mode, Mode.WAKE_WORD)
             self.assertTrue(controls.can_capture)
             self.assertEqual(bridge.wakes, 1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_capture_keeps_running_while_keyword_pre_roll_is_decoded(self):
+        class Audio:
+            def read(self):
+                time.sleep(0.01)
+                return bytes(320)
+
+        class SlowDetector:
+            def feed(self, _pcm):
+                time.sleep(0.12)
+                return True
+
+            def reset(self):
+                pass
+
+        controls = Controls(paired=True, mode=Mode.WAKE_WORD)
+        bridge = FakeBridge()
+        app = DeviceApp(
+            controls=controls, bridge=bridge, button=FakeButton(), leds=FakeLeds(),
+            node=None, wake_detector=SlowDetector(), audio_input=Audio(),
+        )
+        task = asyncio.create_task(app._wake_loop())
+        try:
+            await asyncio.wait_for(self._wait_for_wake(bridge), 1)
+            self.assertGreaterEqual(len(bridge.wake_audio), 5)
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)

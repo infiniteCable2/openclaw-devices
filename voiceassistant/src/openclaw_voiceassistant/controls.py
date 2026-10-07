@@ -39,6 +39,7 @@ class Indicator(str, Enum):
 @dataclass(frozen=True)
 class ControlConfig:
     hold_seconds: float = 0.7
+    double_press_seconds: float = 0.35
     volume_tick_seconds: float = 0.3
     volume_step: float = 0.1
     min_volume: float = 0.2
@@ -46,7 +47,7 @@ class ControlConfig:
     listen_seconds: float = 20.0
 
     def __post_init__(self) -> None:
-        if self.hold_seconds <= 0 or self.volume_tick_seconds <= 0:
+        if self.hold_seconds <= 0 or self.volume_tick_seconds <= 0 or self.double_press_seconds <= 0:
             raise ValueError("button timing must be positive")
         if self.volume_step <= 0 or not 0 <= self.min_volume < self.max_volume <= 1:
             raise ValueError("invalid volume bounds")
@@ -71,6 +72,8 @@ class Controls:
     _pressed_at: float | None = None
     _next_volume_tick: float | None = None
     _volume_direction: int = 1
+    _tap_deadline: float | None = None
+    _second_press: bool = False
 
     @property
     def can_capture(self) -> bool:
@@ -89,6 +92,10 @@ class Controls:
     def set_paired(self, paired: bool) -> tuple[Action, ...]:
         self.paired = paired
         if not paired:
+            self._tap_deadline = None
+            self._second_press = False
+            self._pressed_at = None
+            self._next_volume_tick = None
             actions = self.stop()
             if not self.muted:
                 self.muted = True
@@ -99,6 +106,9 @@ class Controls:
     def press(self, now: float) -> None:
         if self._pressed_at is not None:
             return
+        if self._tap_deadline is not None and now <= self._tap_deadline:
+            self._tap_deadline = None
+            self._second_press = True
         self._pressed_at = now
 
     def release(self, now: float) -> tuple[Action, ...]:
@@ -108,8 +118,27 @@ class Controls:
         self._pressed_at = None
         self._next_volume_tick = None
         if held >= self.config.hold_seconds:
+            self._tap_deadline = None
+            self._second_press = False
             self._volume_direction *= -1
             return ()
+        if not self.paired:
+            self._tap_deadline = None
+            self._second_press = False
+            return ()
+        if self._second_press:
+            self._second_press = False
+            actions: list[Action] = []
+            if self.muted:
+                self.muted = False
+                actions.append(Action.MUTE_CHANGED)
+            actions.extend(self.wake(now))
+            return tuple(actions)
+        previous = self._toggle_mute() if self._tap_deadline is not None else ()
+        self._tap_deadline = now + self.config.double_press_seconds
+        return previous
+
+    def _toggle_mute(self) -> tuple[Action, ...]:
         self.muted = not self.muted
         if self.muted:
             if self.phase == Phase.LISTENING:
@@ -121,6 +150,9 @@ class Controls:
 
     def tick(self, now: float) -> tuple[Action, ...]:
         actions: list[Action] = []
+        if self._pressed_at is None and self._tap_deadline is not None and now >= self._tap_deadline:
+            self._tap_deadline = None
+            actions.extend(self._toggle_mute())
         if self._pressed_at is not None and now - self._pressed_at >= self.config.hold_seconds:
             if self._next_volume_tick is None:
                 self._next_volume_tick = self._pressed_at + self.config.hold_seconds

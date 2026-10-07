@@ -12,9 +12,18 @@ class ControlsTests(unittest.TestCase):
         control.set_paired(True)
         self.assertEqual(control.indicator, Indicator.MUTED)
         control.press(1)
-        self.assertEqual(control.release(1.1), (Action.MUTE_CHANGED,))
+        self.assertEqual(control.release(1.1), ())
+        self.assertEqual(control.tick(1.5), (Action.MUTE_CHANGED,))
         self.assertEqual(control.wake(2), (Action.LISTENING_STARTED,))
         self.assertTrue(control.can_capture)
+
+    def test_unpaired_button_cannot_arm_future_microphone(self):
+        control = Controls()
+        control.press(0)
+        self.assertEqual(control.release(0.1), ())
+        control.set_paired(True)
+        self.assertTrue(control.muted)
+        self.assertFalse(control.can_capture)
 
     def test_timeout_and_extension(self):
         control = Controls(paired=True, muted=False)
@@ -34,7 +43,8 @@ class ControlsTests(unittest.TestCase):
         control = Controls(paired=True, muted=False)
         control.set_phase(Phase.SPEAKING)
         control.press(0)
-        self.assertEqual(control.release(0.1), (Action.MUTE_CHANGED,))
+        self.assertEqual(control.release(0.1), ())
+        self.assertEqual(control.tick(0.5), (Action.MUTE_CHANGED,))
         self.assertTrue(control.muted)
         self.assertEqual(control.phase, Phase.SPEAKING)
         self.assertEqual(control.wake(2), ())
@@ -43,8 +53,9 @@ class ControlsTests(unittest.TestCase):
         control = Controls(paired=True, muted=False)
         control.wake(0)
         control.press(1)
+        self.assertEqual(control.release(1.1), ())
         self.assertEqual(
-            control.release(1.1),
+            control.tick(1.5),
             (Action.MUTE_CHANGED, Action.LISTENING_ENDED),
         )
         self.assertFalse(control.can_capture)
@@ -78,6 +89,27 @@ class ControlsTests(unittest.TestCase):
         control.press(0)
         self.assertEqual(control.tick(100000), (Action.VOLUME_CHANGED,))
         self.assertEqual(control.volume, control.config.max_volume)
+
+    def test_double_press_wakes_without_intermediate_mute(self):
+        control = Controls(paired=True, muted=False)
+        control.press(0)
+        self.assertEqual(control.release(0.05), ())
+        control.press(0.2)
+        self.assertEqual(control.release(0.25), (Action.LISTENING_STARTED,))
+        self.assertFalse(control.muted)
+        self.assertEqual(control.tick(0.6), ())
+        self.assertTrue(control.can_capture)
+
+    def test_double_press_from_muted_unmutes_and_wakes(self):
+        control = Controls(paired=True)
+        control.press(0)
+        control.release(0.05)
+        control.press(0.2)
+        self.assertEqual(
+            control.release(0.25),
+            (Action.MUTE_CHANGED, Action.LISTENING_STARTED),
+        )
+        self.assertTrue(control.can_capture)
 
 
 if __name__ == "__main__":

@@ -43,6 +43,7 @@ class MediaBridge:
         self._input_drop_count = 0
         self._generation = 0
         self._output_remainder = bytearray()
+        self._wake_audio: list[bytes] = []
         self._capture_resampler: PcmResampler | None = None
         self._lifecycle = asyncio.Lock()
         self._push_lock = asyncio.Lock()
@@ -50,6 +51,17 @@ class MediaBridge:
     def note_wake(self) -> None:
         if self.controls.can_capture:
             self.wake_sequence += 1
+
+    def queue_wake_audio(self, frames: list[bytes]) -> None:
+        """Keep only the bounded post-keyword tail until the bridge starts."""
+        if not self.controls.can_capture or self.bridge_id is not None:
+            return
+        if any(len(frame) != BYTES_PER_FRAME for frame in frames):
+            raise ValueError("wake audio must contain 10-ms PCM frames")
+        self._wake_audio = frames[-300:]
+
+    def discard_wake_audio(self) -> None:
+        self._wake_audio.clear()
 
     async def command(self, params: dict[str, Any]) -> dict[str, Any]:
         action = params.get("action")
@@ -143,7 +155,16 @@ class MediaBridge:
             self.bridge_id = None
             self._capture_resampler.close()
             self._capture_resampler = None
+            self.discard_wake_audio()
             raise RuntimeError("microphone was muted during bridge startup")
+        # Put buffered post-keyword speech ahead of newly captured audio. The
+        # queue contains 100-ms chunks, not one slot per 10-ms input frame.
+        for offset in range(0, len(self._wake_audio), 10):
+            pcm = b"".join(self._wake_audio[offset:offset + 10])
+            encoded = self._capture_resampler.process(pcm)
+            if encoded:
+                self._input.put_nowait(encoded)
+        self.discard_wake_audio()
         self._capture_task = asyncio.create_task(self._capture_loop())
         self._playback_task = asyncio.create_task(self._playback_loop())
         self._last_media_command_at = time.monotonic()
@@ -317,6 +338,7 @@ class MediaBridge:
             await self._stop_unlocked(bridge_id)
 
     async def _stop_unlocked(self, bridge_id: Any = None) -> None:
+        self.discard_wake_audio()
         if self.bridge_id is None:
             return
         if bridge_id is not None and bridge_id != self.bridge_id:

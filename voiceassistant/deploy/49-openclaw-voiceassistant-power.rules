@@ -1,0 +1,9 @@
+// Allow only the dedicated Pi voiceassistant service to request host power.
+// Install as root:root 0644 after reviewing the exact service identity.
+polkit.addRule(function(action, subject) {
+    if (subject.user === "openclaw-va" &&
+        (action.id === "org.freedesktop.login1.reboot" ||
+         action.id === "org.freedesktop.login1.power-off")) {
+        return polkit.Result.YES;
+    }
+});

@@ -1,6 +1,6 @@
 # Voiceassistant installation status and bring-up
 
-The **Pi hardware and local media bridge are validated**, but the assistant is not yet connected to an OpenClaw agent. This is a development procedure, not a production installation. The server-side node-to-Meeting adapter, explicit device-to-agent binding, Gateway admission test and secure Wi-Fi setup portal are still open. Do not enable an unattended service or expose the Gateway for this prototype.
+The Pi is paired to an OpenClaw agent through the native Gateway node transport and shared Meeting engine. This document describes the next candidate, not proof that its wake-word and device-control changes are deployed. Keep the selected release and its validated rollback until the new candidate passes real-device acceptance. The Wi-Fi setup portal remains future work.
 
 ## Local, hardware-free validation
 
@@ -51,6 +51,8 @@ credential after the paired device has received its own `tokenPath` token.
 PYTHONPATH=src python3 -m openclaw_voiceassistant --config /absolute/private/device-config.json
 ```
 
-The Pi starts muted and unpaired. After successful Gateway admission, a double button press unmutes and opens a bounded listening window; a short single press toggles mute after the double-press interval. Disconnect or revocation returns to muted/unpaired state and clears active media. A live bridge keeps the listening window open for later utterances and barge-in. The runner reconnects with bounded backoff but will not downgrade TLS.
+The candidate requires a private, absolute `wakeModelDirectory` containing the tested Sherpa-ONNX Nova model files and a locally prepared `keywords.txt`. Install the CPU-only Python runtime in the candidate environment; do not commit or distribute model weights from this repository until their redistribution license is resolved. The Pi starts muted. After Gateway admission, each short press cycles muted → wake-word → continuous → muted. A local Nova detection opens a six-second inactivity window, held by active speech/processing/playout. A remote agent can adjust 0–100% speaker volume and LED brightness, select an unmuted mode, or mute; it cannot override a physical button mute. Disconnect or revocation returns to mute and clears active media.
+
+The optional root-owned [`49-openclaw-voiceassistant-power.rules`](deploy/49-openclaw-voiceassistant-power.rules) authorizes only the dedicated runtime identity for login1 reboot and power-off. Install and verify it separately; do not broaden the service's sudo rights or disable `NoNewPrivileges`. A shutdown may require physical power to restore. Enable boot autostart only after password hardening, model/CPU validation, audio acceptance and a validated rollback.
 
 The temporary setup login must be rotated or disabled before an unattended service is enabled. A separate, reviewed deployment step should install only this subtree under a dedicated service account, perform pairing and STT/TTS loopback, and retain a validated rollback.

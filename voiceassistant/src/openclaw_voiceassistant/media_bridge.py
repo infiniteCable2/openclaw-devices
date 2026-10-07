@@ -9,7 +9,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from .apm import BYTES_PER_FRAME
-from .controls import Controls
+from .controls import Action, Controls, Indicator, Mode
 from .resample import PcmResampler
 
 
@@ -39,10 +39,11 @@ class MediaBridge:
         self._watchdog_task: asyncio.Task[None] | None = None
         self._last_media_command_at = time.monotonic()
         self._capture_error: str | None = None
+        self._playback_error: str | None = None
+        self._input_drop_count = 0
         self._generation = 0
         self._output_remainder = bytearray()
         self._capture_resampler: PcmResampler | None = None
-        self._playback_resampler: PcmResampler | None = None
         self._lifecycle = asyncio.Lock()
         self._push_lock = asyncio.Lock()
 
@@ -57,9 +58,47 @@ class MediaBridge:
                 "wakeSequence": self.wake_sequence,
                 "muted": self.controls.muted,
                 "listening": self.controls.can_capture,
+                "persistent": self.controls.persistent,
+                "mode": self.controls.mode.value,
+                "volumePercent": round(self.controls.volume * 100),
+                "brightnessPercent": round(self.controls.brightness * 100),
                 "active": self.bridge_id is not None,
                 "captureError": self._capture_error,
+                "playbackError": self._playback_error,
+                "inputDropCount": self._input_drop_count,
             }
+        if action == "setActivity":
+            self._require_bridge(params)
+            try:
+                activity = Indicator(params.get("activity"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("invalid conversation activity") from error
+            self.controls.set_activity(activity, time.monotonic())
+            return {"activitySet": True}
+        if action == "configure":
+            changes = [key for key in ("mode", "volumePercent", "brightnessPercent") if key in params]
+            if len(changes) != 1:
+                raise ValueError("configure requires exactly one setting")
+            setting = changes[0]
+            if setting == "mode":
+                try:
+                    mode = Mode(params[setting])
+                except (ValueError, TypeError) as error:
+                    raise ValueError("invalid device mode") from error
+                actions = self.controls.set_mode(mode, time.monotonic())
+                if Action.WAKE_REQUESTED in actions:
+                    self.note_wake()
+            else:
+                percent = params[setting]
+                if type(percent) is not int or not 0 <= percent <= 100:
+                    raise ValueError("invalid device percentage")
+                if setting == "volumePercent":
+                    self.controls.volume = percent / 100
+                else:
+                    self.controls.brightness = percent / 100
+            return {"mode": self.controls.mode.value,
+                    "volumePercent": round(self.controls.volume * 100),
+                    "brightnessPercent": round(self.controls.brightness * 100)}
         if action == "holdListening":
             if not self.controls.can_capture:
                 return {"held": False}
@@ -89,22 +128,21 @@ class MediaBridge:
             raise RuntimeError("a device conversation is already active")
         self.bridge_id = uuid4().hex
         self._capture_error = None
+        self._playback_error = None
+        self._input_drop_count = 0
         self._generation += 1
         self._capture_resampler = PcmResampler(16_000, 24_000)
-        self._playback_resampler = PcmResampler(24_000, 16_000)
         try:
             await asyncio.to_thread(self.audio.clear_playback, self._generation)
         except BaseException:
             self.bridge_id = None
             self._capture_resampler.close()
-            self._playback_resampler.close()
-            self._capture_resampler = self._playback_resampler = None
+            self._capture_resampler = None
             raise
         if not self.controls.can_capture:
             self.bridge_id = None
             self._capture_resampler.close()
-            self._playback_resampler.close()
-            self._capture_resampler = self._playback_resampler = None
+            self._capture_resampler = None
             raise RuntimeError("microphone was muted during bridge startup")
         self._capture_task = asyncio.create_task(self._capture_loop())
         self._playback_task = asyncio.create_task(self._playback_loop())
@@ -127,6 +165,11 @@ class MediaBridge:
                     continue
                 encoded = self._capture_resampler.process(pcm) if self._capture_resampler else b""
                 if encoded:
+                    if self._input.full():
+                        # A delayed Gateway pull must not permanently kill capture.
+                        # Keep the newest audio and expose only a drop count.
+                        self._input.get_nowait()
+                        self._input_drop_count += 1
                     self._input.put_nowait(encoded)
         except asyncio.CancelledError:
             raise
@@ -138,9 +181,20 @@ class MediaBridge:
             while True:
                 generation, frame = await self._output.get()
                 if generation == self._generation and self.bridge_id is not None:
-                    await asyncio.to_thread(self.audio.write, frame, self.controls.volume, generation)
+                    try:
+                        await asyncio.to_thread(self.audio.write, frame, self.controls.volume, generation)
+                    except Exception as error:
+                        # A transient ALSA xrun must not strand the playout queue
+                        # and turn every later TTS push into a timeout. Reset the
+                        # exact current generation once; fail visibly if retry fails.
+                        self._playback_error = type(error).__name__
+                        await asyncio.to_thread(self.audio.clear_playback, generation)
+                        await asyncio.to_thread(self.audio.write, frame, self.controls.volume, generation)
+                    self._playback_error = None
         except asyncio.CancelledError:
             raise
+        except Exception as error:
+            self._playback_error = type(error).__name__
 
     async def _watchdog_loop(self, bridge_id: str) -> None:
         interval = min(1.0, self.idle_timeout_seconds / 2)
@@ -194,10 +248,24 @@ class MediaBridge:
             for frame in frames:
                 if generation != self._generation or bridge_id != self.bridge_id:
                     return {"dropped": True, "outputGeneration": self._generation}
+                worker = self._playback_task
+                if worker is None or worker.done():
+                    raise RuntimeError("audio playback worker unavailable")
+                queued = asyncio.create_task(self._output.put((generation, frame)))
                 try:
-                    await asyncio.wait_for(self._output.put((generation, frame)), timeout=3)
-                except TimeoutError as error:
-                    raise RuntimeError("audio playout backpressure timed out") from error
+                    done, _ = await asyncio.wait(
+                        (queued, worker), timeout=3, return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if generation != self._generation or bridge_id != self.bridge_id:
+                        return {"dropped": True, "outputGeneration": self._generation}
+                    if worker in done:
+                        raise RuntimeError("audio playback worker unavailable")
+                    if queued not in done:
+                        raise RuntimeError("audio playout backpressure timed out")
+                finally:
+                    if not queued.done():
+                        queued.cancel()
+                        await asyncio.gather(queued, return_exceptions=True)
             if generation != self._generation or bridge_id != self.bridge_id:
                 return {"dropped": True, "outputGeneration": self._generation}
             return {"acceptedBytes": accepted_bytes, "outputGeneration": generation}
@@ -216,12 +284,14 @@ class MediaBridge:
         pcm = base64.b64decode(encoded, validate=True)
         if len(pcm) > 750_000 or len(pcm) % 2:
             raise ValueError("invalid PCM payload")
-        converted = self._playback_resampler.process(pcm) if self._playback_resampler else b""
-        self._output_remainder.extend(converted)
+        self._output_remainder.extend(pcm)
         frames: list[bytes] = []
-        while len(self._output_remainder) >= BYTES_PER_FRAME:
-            frame = bytes(self._output_remainder[:BYTES_PER_FRAME])
-            del self._output_remainder[:BYTES_PER_FRAME]
+        # Preserve TTS's native 24-kHz bandwidth at the speaker. AEC receives
+        # a separately resampled 16-kHz reference from the played samples.
+        playback_frame_bytes = 480
+        while len(self._output_remainder) >= playback_frame_bytes:
+            frame = bytes(self._output_remainder[:playback_frame_bytes])
+            del self._output_remainder[:playback_frame_bytes]
             frames.append(frame)
         return self.bridge_id, generation, len(pcm), frames
 
@@ -267,6 +337,5 @@ class MediaBridge:
             while not queue.empty():
                 queue.get_nowait()
         await asyncio.to_thread(self.audio.clear_playback, self._generation)
-        for resampler in (self._capture_resampler, self._playback_resampler):
-            resampler and resampler.close()
-        self._capture_resampler = self._playback_resampler = None
+        self._capture_resampler and self._capture_resampler.close()
+        self._capture_resampler = None

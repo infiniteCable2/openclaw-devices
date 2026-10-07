@@ -14,29 +14,25 @@ _COLORS: dict[Indicator, tuple[int, int, int]] = {
     Indicator.MUTED: (180, 0, 0),
     Indicator.IDLE: (0, 20, 120),
     Indicator.LISTENING: (0, 130, 25),
+    Indicator.SENSING: (0, 105, 105),
+    Indicator.HEARING: (110, 170, 0),
     Indicator.PROCESSING: (180, 75, 0),
     Indicator.SPEAKING: (0, 110, 150),
 }
 
 
-def led_frame(indicator: Indicator, volume: float, brightness: int = 6) -> bytes:
+def led_frame(indicator: Indicator, brightness: float = 0.2) -> bytes:
     """Build the 3-pixel SPI frame without needing GPIO/SPI libraries."""
-    if not 0 <= volume <= 1:
-        raise ValueError("volume must be a fraction in [0, 1]")
-    if not 0 <= brightness <= 31:
-        raise ValueError("brightness must be in [0, 31]")
-    if indicator == Indicator.VOLUME:
-        lit = min(3, max(1, int(volume * 3 + 0.999)))
-        colors = [(255, 255, 255) if index < lit else (0, 0, 0) for index in range(3)]
-    else:
-        colors = [_COLORS[indicator]] * 3
+    if not 0 <= brightness <= 1:
+        raise ValueError("brightness must be a fraction in [0, 1]")
+    # The 8-bit color channels provide smooth 0-100% control. At 20%, this is
+    # effectively the former APA102 global brightness 6/31 default.
+    colors = [_COLORS[indicator]] * 3
 
     frame = bytearray([0, 0, 0, 0])
     for red, green, blue in colors:
-        if brightness == 0:
-            red = green = blue = 0
-        pixel_brightness = brightness if (red, green, blue) != (0, 0, 0) else 0
-        frame.extend((0xE0 | pixel_brightness, blue, green, red))
+        frame.extend((0xFF, round(blue * brightness), round(green * brightness),
+                      round(red * brightness)))
     frame.extend((255, 255, 255, 255))
     return bytes(frame)
 
@@ -50,8 +46,8 @@ class ReSpeakerLeds:
         self._spi.max_speed_hz = 8_000_000
         self._last_frame: bytes | None = None
 
-    def show(self, indicator: Indicator, volume: float) -> None:
-        frame = led_frame(indicator, volume)
+    def show(self, indicator: Indicator, brightness: float) -> None:
+        frame = led_frame(indicator, brightness)
         if frame == self._last_frame:
             return
         self._spi.xfer2(list(frame))
@@ -59,7 +55,7 @@ class ReSpeakerLeds:
 
     def close(self) -> None:
         try:
-            self._spi.xfer2(list(led_frame(Indicator.IDLE, 0, brightness=0)))
+            self._spi.xfer2(list(led_frame(Indicator.IDLE, brightness=0)))
         finally:
             self._spi.close()
 

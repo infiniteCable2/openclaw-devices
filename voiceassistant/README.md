@@ -19,10 +19,9 @@ The MAX98357A receives digital PCM directly: the WM8960 playback mixer is **not*
 
 ## First milestone: core assistant
 
-- A short button press toggles physical mute after a 350-ms double-press window. Muted means microphone frames are not sent; the LED shows this unambiguously. A hardware mic power gate would be stronger than software mute, but is not part of this board profile.
-- A double press opens a bounded conversation window (and unmutes if necessary). This is the agreed first activation mode while a local “Nova” wake model is selected and validated. A long hold adjusts bounded volume; the physical gestures still need on-device usability tests.
-- Later local “Nova” wake detection should open the same listening window. Valid speech/agent activity may extend it; expiration returns to idle. “Stop” should immediately cancel local playback and listening. Both words need licensed models and far-field/TV-noise tests before production.
-- LEDs distinguish unpaired/offline, idle, listening, processing, speaking, muted and error. Color is advisory, while physical mute state must never be ambiguous.
+- One short button press cycles **muted → Nova wake-word → continuous conversation → muted**. The 6-second wake-word conversation timeout measures inactivity; active speech, processing and playout hold the window. Continuous conversation stays open until muted. The button's mute cannot be remotely undone. It is a software mute, not a hardware microphone power gate.
+- The local offline wake detector processes Pi-only 16-kHz PCM; no standby audio is sent to OpenClaw before activation. Its model is an installation artifact, not part of Git. Real Pi pronunciation, latency, CPU and false-wake tests are required before enabling this candidate. “Stop” as a spoken cancel word remains future work.
+- LEDs distinguish unpaired, muted, wake-ready, listening, candidate acoustic activity, confirmed speech, processing and speaking. The default is 20% brightness; an authorized agent may set 0–100% brightness and speaker volume separately.
 - OpenClaw remains the single agent core. Inbound device speech is bound to an approved agent and enters the same session/steering path as that persona's Matrix messages. There is no Pi-side agent or separate conversation history.
 
 ## Later modes, deliberately separated
@@ -35,6 +34,6 @@ This assistant can become both a **communication endpoint** and a **managed devi
 2. Measure end-to-end speaker-to-mic delay and test local AEC against the actual playout reference. Prefer native WebRTC AudioProcessing with 10 ms frames; avoid a second aggressive AGC competing with the server's speech-level controller.
 3. Provision Wi-Fi through a time-limited, button-activated setup hotspot and then enroll the device separately with the Gateway; see the [security and setup design](docs/provisioning.md). No password or bearer token in this repository or process arguments. Require authenticated encryption even on the home LAN.
 4. Attach a secure device-audio transport to OpenClaw's existing meeting/realtime engine and server STT/TTS pipeline. Resolve the **same agent-specific voice profile** as Matrix calling: `think off`, enabled commentary, tool/message policy and other overrides belong to the bound agent, not this hardware. Test greeting, commentary, barge-in, stop, reconnect and queued second utterances. No separate device-side agent loop.
-5. Only after these pass, install a least-privilege system service with explicit rollback and rotate the Pi's temporary setup password. Production activation is a separate phase.
+5. Only after these pass, select the immutable candidate with explicit rollback. Before enabling boot autostart, rotate or disable the Pi's temporary setup password. A narrow polkit rule can allow the dedicated runtime identity to request only reboot/poweroff, without general sudo or removing `NoNewPrivileges`.
 
 The old Voicecore hardware guide is a historical reference in the separate `voicecore` repository, not a runtime dependency.

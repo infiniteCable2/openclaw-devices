@@ -6,7 +6,7 @@
 ReSpeaker microphones -> Pi capture -> AEC/NS + wake/stop/mute -> authenticated media transport
                                                             |
                                                             v
-Gateway Talk/session -> existing STT -> OpenClaw agent/session -> existing TTS
+Gateway meeting/realtime engine -> existing STT -> OpenClaw agent/session -> existing TTS
                                                             |
                                                             v
 Pi playout/volume -> speaker; the same played PCM + timing -> AEC reverse stream
@@ -16,13 +16,13 @@ The Pi is a **trusted media source**, but its own claims (speech probability, VA
 
 ## Existing OpenClaw seam and the gap
 
-OpenClaw already has native Talk sessions, events, agent-prefixed session ownership and cryptographically signed device pairing with separate approval of the node command surface. Its native mobile Talk loop sends transcripts to Gateway chat and speaks replies. A Gateway-owned `gateway-relay` currently supports realtime-provider audio and transcription-only sessions. In the checked-out code, `talk.session.create` for `stt-tts` explicitly requires `managed-room`; `talk.session.appendAudio` rejects managed-room. Thus a small Linux client **cannot yet** simply stream its PCM into native Talk STT/TTS relay. That is a specific interface gap, not a reason to clone the agent loop.
+The reusable speech pipeline **already exists**. Matrix RTC calls `prepareMeetingAgentRealtimeEngine` and `startMeetingAgentRealtimeEngine` through the public `openclaw/plugin-sdk/meeting-runtime` surface. The engine accepts a `MeetingRealtimeAudioTransport` and already handles our configured transcription provider, server TTS/readiness, greeting, waiting audio, commentary, barge-in and common agent consultation/steering. A `createNodeMeetingRealtimeAudioTransport` implementation also exists for paired OpenClaw nodes, although its command/polling shape and full node-host runtime may not be the best fit for a small always-on Pi. The missing piece is a secure **device media transport/admission adapter**, not another STT, TTS or agent loop. This adapter should be reusable by later voiceassistant models rather than Pi-specific.
 
-Preferred server work: extend the native Talk contract with a narrowly scoped Gateway-owned `stt-tts` media relay (or reuse an equivalent upstream mechanism if it appears). Reuse Talk's session identity, event names, agent routing and interrupt/steering semantics. Implement media backpressure, bounded queues, output acknowledgements/cancel, idempotent reconnect and per-turn ordering there. STT/TTS should call the already-deployed providers and GPU readiness flow. A single device-bound session must not silently fall back to a different persona. Test the same agent history and tool rights as text/Matrix without special device-only business logic.
+Preferred work: evaluate the existing node audio transport first with a narrowly declared non-shell media capability. If it proves too heavy or too high-latency on the Pi, add a small authenticated transport implementation behind the same `MeetingRealtimeAudioTransport` contract. Reuse the existing engine, provider configuration, GPU readiness flow and session/agent steering. Implement media backpressure, bounded queues, output acknowledgements/cancel, idempotent reconnect and per-turn ordering at that transport boundary. A device-bound session must not silently fall back to another persona.
 
-The **bound agent's** voice conversation profile must be resolved the same way as for Matrix RTC. For Steffen, that currently means `think off` for calls, commentary and the allowed message/tool surface. This is not a gateway-wide or device-type default; a later Bodo, Astrid or André device receives its own agent's configured profile. Do not duplicate settings as constants in the Pi client.
+The **bound agent's** voice conversation profile must be resolved with the same effective values as Matrix RTC. For Steffen, that currently means `think off` for calls, commentary and the allowed message/tool surface. Today Matrix's profile resolver lives in its own RTC adapter, so extract or reuse its configuration semantics rather than blindly copying constants. This is not a gateway-wide or device-type default; a later Bodo, Astrid or André device receives its own agent's configured profile.
 
-The alternative is a Talk node client with on-device STT/TTS, but it would bypass our proven server providers and burden a 416 MiB Pi. The heavyweight general node host is also not the intended Pi runtime. Do not introduce an unauthenticated custom WebSocket, a second conversation scheduler or a global bearer token as a shortcut.
+OpenClaw's separate native Talk `stt-tts` relay has its own transport restrictions, but those do **not** block this meeting-engine path. Do not add a Talk relay merely to connect the Pi. A Talk client with on-device STT/TTS would bypass our proven server providers and burden a 416 MiB Pi. Do not introduce an unauthenticated custom WebSocket, a second conversation scheduler or a global bearer token as a shortcut.
 
 ## One endpoint, two roles
 

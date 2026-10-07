@@ -1,6 +1,6 @@
 # Raspberry Pi voice assistant
 
-Target: Raspberry Pi Zero 2 W (Debian 13), ReSpeaker 2-Mic HAT v1/WM8960, MAX98357A I²S amplifier and speaker. This is a **thin, trusted edge device**, not another agent runtime. Audio processing, wake-word gating, button/LEDs and transport live here; the OpenClaw Gateway owns the agent/session and server STT/TTS services.
+Target: Raspberry Pi Zero 2 W (Debian 13), ReSpeaker 2-Mic HAT v1/WM8960, MAX98357A I²S amplifier and speaker. This is a **thin, trusted edge device**, not another agent runtime. Audio processing, wake-word gating, button/LEDs and transport live here; the OpenClaw Gateway owns the agent/session and server STT/TTS services. Its reusable meeting/realtime engine is already used by Matrix calling.
 
 ## Verified hardware profile
 
@@ -34,7 +34,7 @@ This assistant can become both a **communication endpoint** and a **managed devi
 1. Verify named ALSA capture/playback, channel map, GPIO17 and three LEDs; record a local non-sensitive loopback sample. Keep the Ghostbox source repository intact but do not install it.
 2. Measure end-to-end speaker-to-mic delay and test local AEC against the actual playout reference. Prefer native WebRTC AudioProcessing with 10 ms frames; avoid a second aggressive AGC competing with the server's speech-level controller.
 3. Provision Wi-Fi through a time-limited, button-activated setup hotspot and then enroll the device separately with the Gateway; see the [security and setup design](docs/provisioning.md). No password or bearer token in this repository or process arguments. Require authenticated encryption even on the home LAN.
-4. Use the existing OpenClaw agent/session and server STT/TTS pipeline with the **same agent-specific voice profile** as Matrix calling: `think off`, enabled commentary, tool/message policy and other overrides are resolved for the bound agent, not hard-coded for this device. Test greeting, commentary, barge-in, stop, reconnect and queued second utterances. No separate device-side agent loop.
+4. Attach a secure device-audio transport to OpenClaw's existing meeting/realtime engine and server STT/TTS pipeline. Resolve the **same agent-specific voice profile** as Matrix calling: `think off`, enabled commentary, tool/message policy and other overrides belong to the bound agent, not this hardware. Test greeting, commentary, barge-in, stop, reconnect and queued second utterances. No separate device-side agent loop.
 5. Only after these pass, install a least-privilege system service with explicit rollback and rotate the Pi's temporary setup password. Production activation is a separate phase.
 
 The old Voicecore hardware guide is a historical reference in the separate `voicecore` repository, not a runtime dependency.

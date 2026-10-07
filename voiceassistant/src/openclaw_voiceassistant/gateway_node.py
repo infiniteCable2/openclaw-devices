@@ -31,11 +31,11 @@ def connect_request(
     nonce: str,
     signed_at_ms: int,
     device_token: str | None = None,
-    bootstrap_token: str | None = None,
+    gateway_token: str | None = None,
 ) -> dict[str, Any]:
-    if device_token and bootstrap_token:
+    if device_token and gateway_token:
         raise ValueError("choose one Gateway credential")
-    token = device_token or bootstrap_token or ""
+    token = device_token or gateway_token or ""
     return {
         "type": "req",
         "id": str(uuid4()),
@@ -60,8 +60,8 @@ def connect_request(
             **(
                 {"auth": {"deviceToken": device_token}}
                 if device_token
-                else {"auth": {"bootstrapToken": bootstrap_token}}
-                if bootstrap_token
+                else {"auth": {"token": gateway_token}}
+                if gateway_token
                 else {}
             ),
         },
@@ -95,7 +95,7 @@ class GatewayNode:
         handler: Handler,
         *,
         token_path: Path,
-        bootstrap_token_path: Path | None = None,
+        gateway_token_path: Path | None = None,
     ) -> None:
         parsed = urlsplit(url)
         if (
@@ -111,7 +111,7 @@ class GatewayNode:
         self.identity = identity
         self.handler = handler
         self.token_path = token_path
-        self.bootstrap_token_path = bootstrap_token_path
+        self.gateway_token_path = gateway_token_path
         self._send_lock = asyncio.Lock()
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
@@ -161,7 +161,7 @@ class GatewayNode:
         from websockets.asyncio.client import connect
 
         device_token = self._read_secret(self.token_path)
-        bootstrap_token = None if device_token else self._read_secret(self.bootstrap_token_path)
+        gateway_token = None if device_token else self._read_secret(self.gateway_token_path)
         # The default context validates both certificate chain and hostname.
         context = ssl.create_default_context()
         async with connect(self.url, ssl=context, max_size=2_000_000, ping_interval=20) as socket:
@@ -181,7 +181,7 @@ class GatewayNode:
                 nonce=nonce,
                 signed_at_ms=signed_at,
                 device_token=device_token,
-                bootstrap_token=bootstrap_token,
+                gateway_token=gateway_token,
             )
             await socket.send(json.dumps(request, separators=(",", ":")))
             response = _frame(await asyncio.wait_for(socket.recv(), timeout=15))

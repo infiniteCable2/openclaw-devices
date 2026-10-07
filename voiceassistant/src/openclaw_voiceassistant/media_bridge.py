@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections import deque
+import time
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -22,15 +22,22 @@ class AudioDevice(Protocol):
 class MediaBridge:
     """One live conversation; no authority to select an agent or a session."""
 
-    def __init__(self, audio: AudioDevice, controls: Controls) -> None:
+    def __init__(
+        self, audio: AudioDevice, controls: Controls, *, idle_timeout_seconds: float = 15.0,
+    ) -> None:
+        if idle_timeout_seconds <= 0:
+            raise ValueError("bridge idle timeout must be positive")
         self.audio = audio
         self.controls = controls
+        self.idle_timeout_seconds = idle_timeout_seconds
         self.bridge_id: str | None = None
         self.wake_sequence = 0
         self._input: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
         self._output: asyncio.Queue[tuple[int, bytes]] = asyncio.Queue(maxsize=100)
         self._capture_task: asyncio.Task[None] | None = None
         self._playback_task: asyncio.Task[None] | None = None
+        self._watchdog_task: asyncio.Task[None] | None = None
+        self._last_media_command_at = time.monotonic()
         self._capture_error: str | None = None
         self._generation = 0
         self._output_remainder = bytearray()
@@ -52,6 +59,11 @@ class MediaBridge:
                 "active": self.bridge_id is not None,
                 "captureError": self._capture_error,
             }
+        if action == "holdListening":
+            if not self.controls.can_capture:
+                return {"held": False}
+            self.controls.extend_listening(time.monotonic())
+            return {"held": True}
         if action == "start":
             return await self.start()
         if action == "pullAudio":
@@ -95,6 +107,8 @@ class MediaBridge:
             raise RuntimeError("microphone was muted during bridge startup")
         self._capture_task = asyncio.create_task(self._capture_loop())
         self._playback_task = asyncio.create_task(self._playback_loop())
+        self._last_media_command_at = time.monotonic()
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop(self.bridge_id))
         return {"bridgeId": self.bridge_id, "audioFormat": "pcm16-24khz",
                 "outputGeneration": self._generation}
 
@@ -127,8 +141,28 @@ class MediaBridge:
         except asyncio.CancelledError:
             raise
 
+    async def _watchdog_loop(self, bridge_id: str) -> None:
+        interval = min(1.0, self.idle_timeout_seconds / 2)
+        while self.bridge_id == bridge_id:
+            await asyncio.sleep(interval)
+            if self.bridge_id != bridge_id:
+                return
+            if time.monotonic() - self._last_media_command_at > self.idle_timeout_seconds:
+                # Never await stop() from its own watchdog task.
+                asyncio.create_task(self._expire_bridge(bridge_id))
+                return
+
+    async def _expire_bridge(self, bridge_id: str) -> None:
+        try:
+            await self.stop(bridge_id)
+        except ValueError:
+            pass  # A newer bridge already replaced the expired one.
+        except Exception as error:
+            self._capture_error = f"watchdog_{type(error).__name__}"
+
     async def pull(self, params: dict[str, Any]) -> dict[str, Any]:
         self._require_bridge(params)
+        self._last_media_command_at = time.monotonic()
         if not self.controls.can_capture:
             # A physical mute must also discard frames queued just before the
             # button event, even if a Gateway pull races device-side stop().
@@ -153,6 +187,7 @@ class MediaBridge:
 
     def _push_unlocked(self, params: dict[str, Any]) -> dict[str, Any]:
         self._require_bridge(params)
+        self._last_media_command_at = time.monotonic()
         generation = params.get("outputGeneration", self._generation)
         if not isinstance(generation, int) or generation != self._generation:
             return {"dropped": True, "outputGeneration": self._generation}
@@ -176,6 +211,7 @@ class MediaBridge:
 
     async def _clear_unlocked(self, params: dict[str, Any]) -> dict[str, Any]:
         self._require_bridge(params)
+        self._last_media_command_at = time.monotonic()
         requested = params.get("outputGeneration")
         if requested is not None and (not isinstance(requested, int) or requested < self._generation):
             raise ValueError("stale output generation")
@@ -197,14 +233,15 @@ class MediaBridge:
             raise ValueError("unknown bridgeId")
         self.bridge_id = None
         self._generation += 1
-        for task in (self._capture_task, self._playback_task):
+        tasks = (self._capture_task, self._playback_task, self._watchdog_task)
+        for task in tasks:
             if task is not None:
                 task.cancel()
         await asyncio.gather(
-            *(task for task in (self._capture_task, self._playback_task) if task is not None),
+            *(task for task in tasks if task is not None),
             return_exceptions=True,
         )
-        self._capture_task = self._playback_task = None
+        self._capture_task = self._playback_task = self._watchdog_task = None
         self._output_remainder.clear()
         for queue in (self._input, self._output):
             while not queue.empty():

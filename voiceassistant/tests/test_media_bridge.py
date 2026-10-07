@@ -50,6 +50,7 @@ class MediaBridgeTests(unittest.IsolatedAsyncioTestCase):
             controls.wake(0)
             bridge.note_wake()
             self.assertEqual((await bridge.command({"action": "status"}))["wakeSequence"], 1)
+            self.assertTrue((await bridge.command({"action": "holdListening"}))["held"])
             started = await bridge.start()
             identity = started["bridgeId"]
             received = await bridge.pull({"bridgeId": identity, "timeoutMs": 250})
@@ -113,6 +114,15 @@ class MediaBridgeTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             with self.assertRaises(RuntimeError):
                 await opening
+        self.assertIsNone(bridge.bridge_id)
+
+    async def test_local_watchdog_closes_orphaned_media(self):
+        controls = Controls(paired=True, muted=False)
+        controls.wake(0)
+        bridge = MediaBridge(FakeAudio(), controls, idle_timeout_seconds=0.03)
+        with patch("openclaw_voiceassistant.media_bridge.PcmResampler", FakeResampler):
+            await bridge.start()
+            await asyncio.sleep(0.1)
         self.assertIsNone(bridge.bridge_id)
 
 

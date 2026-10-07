@@ -1,6 +1,6 @@
 # Voiceassistant installation status and bring-up
 
-There is **no production installation procedure yet**: the device-control core is testable, but the encrypted OpenClaw media transport, Wi-Fi provisioning page, wake/stop models and AEC/playout loop have not been implemented. Do not install this package as a service or point it at the production Gateway.
+The **Pi hardware and local media bridge are validated**, but the assistant is not yet connected to an OpenClaw agent. This is a development procedure, not a production installation. The server-side node-to-Meeting adapter, explicit device-to-agent binding, Gateway admission test and secure Wi-Fi setup portal are still open. Do not enable an unattended service or expose the Gateway for this prototype.
 
 ## Local, hardware-free validation
 
@@ -10,9 +10,9 @@ With Python 3.11 or newer in `voiceassistant/`:
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-These tests cover fail-closed mute/pairing, wake timeout, stop/playback cancellation, held-button volume changes and the three-LED SPI frame format. They do **not** prove ReSpeaker audio, acoustic echo cancellation, TLS/pairing or agent behavior.
+These tests cover controls, cryptographic device identity, node frame shape, bounded audio transport and fail-closed mute behavior. They do **not** prove Gateway admission or end-to-end STT/TTS.
 
-## Pi inventory to repeat before device integration
+## Pi-local hardware probe
 
 On the Raspberry Pi Zero 2 W, use read-only checks first:
 
@@ -21,9 +21,26 @@ cat /etc/os-release
 aplay -l
 arecord -l
 ls -l /dev/spidev0.*
-grep -E '^(dtparam=(spi|i2s)|dtoverlay=)' /boot/firmware/config.txt
 ```
 
-Expected from the previous inventory: `seeed2micvoicec`, `/dev/spidev0.0` and `.1`, `dtparam=spi=on`, `dtparam=i2s=on`, and `dtoverlay=respeaker-2mic-v1_0`. Confirm rather than hard-code card index. The target's temporary setup password must be changed or locked before production. Never copy it into this repository.
+Expected: named ALSA card `seeed2micvoicec`, `capture`/`playback` endpoints and SPI LEDs. Confirm rather than hard-code the card index. For a fresh Pi, install the distribution packages `python3-alsaaudio`, `python3-cryptography`, `python3-gpiozero`, `python3-spidev`, `python3-websockets`, `libspeexdsp-dev`, `libwebrtc-audio-processing-dev`, `g++` and `pkg-config`. Build and probe locally:
 
-Device-side installation will later package only this `voiceassistant/` subtree, create a least-privilege service identity, install hardware libraries, enroll over the guarded setup hotspot, verify the Gateway's certificate and device pairing, and start a systemd unit with an explicit rollback. Those steps need on-device tests and a separate deployment authorization.
+```sh
+sh native/build.sh
+PYTHONPATH=src python3 -m openclaw_voiceassistant.smoke --library build/libopenclaw-apm.so
+PYTHONPATH=src python3 -m openclaw_voiceassistant.smoke_bridge --library build/libopenclaw-apm.so --seconds 1
+```
+
+The probes do not retain microphone audio. The second exercises the 16-kHz local AEC path and 24-kHz Meeting transport shape without a server. The delay estimate is currently 40 ms; calibrate it with real simultaneous speaker and mic activity before claiming acoustic echo cancellation quality.
+
+## Device process, after server integration
+
+`device-config.example.json` lists only public endpoint and local file paths. Copy it to a machine-local, untracked config, replace the example endpoint with a certificate-valid `wss://` Gateway name, and protect the state directory. Never put a token or private key in this repo or process arguments. The process uses the native signed node handshake and advertises only `voiceassistant.audio`:
+
+```sh
+PYTHONPATH=src python3 -m openclaw_voiceassistant --config /absolute/private/device-config.json
+```
+
+The Pi starts muted and unpaired. After successful Gateway admission, a double button press unmutes and opens a bounded listening window; a short single press toggles mute after the double-press interval. Disconnect or revocation returns to muted/unpaired state and clears active media. A live bridge keeps the listening window open for later utterances and barge-in. The runner reconnects with bounded backoff but will not downgrade TLS.
+
+The temporary setup login must be rotated or disabled before an unattended service is enabled. A separate, reviewed deployment step should install only this subtree under a dedicated service account, perform pairing and STT/TTS loopback, and retain a validated rollback.

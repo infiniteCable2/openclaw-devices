@@ -270,7 +270,9 @@ class GatewayNode:
                 answer = await self.handler(invoke_params(payload))
                 result = {"id": invoke_id, "nodeId": node_id, "ok": True,
                           "payloadJSON": json.dumps(answer, separators=(",", ":"))}
-            except Exception:
+            except Exception as error:
+                # Keep diagnostics useful without logging RPC payloads or media.
+                print(f"Device media operation failed: {type(error).__name__}", flush=True)
                 result = {"id": invoke_id, "nodeId": node_id, "ok": False,
                           "error": {"code": "UNAVAILABLE", "message": "device media operation failed"}}
         response = await self._request(socket, "node.invoke.result", result)

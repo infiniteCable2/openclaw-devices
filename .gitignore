@@ -1,0 +1,46 @@
+# Machine-local instructions, credentials and pairing state
+AGENTS.md
+.local/
+.env
+.env.*
+!.env.example
+*.local.toml
+*.local.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python/device builds
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Device runtime output; committed audio fixtures belong in tests/fixtures/
+**/state/
+**/logs/
+**/captures/
+**/recordings/
+**/pairing/
+**/secrets/
+*.log
+
+# Local deployment and editor artifacts
+.deploy/
+.staging/
+*.tar
+*.tar.gz
+*.zip
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

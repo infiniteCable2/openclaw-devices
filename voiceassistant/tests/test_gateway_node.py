@@ -20,6 +20,11 @@ class GatewayNodeTests(unittest.TestCase):
         self.assertEqual(params["commands"], [COMMAND])
         self.assertEqual(params["client"]["mode"], "node")
 
+    def test_initial_shared_gateway_token_is_not_mistaken_for_setup_bootstrap(self) -> None:
+        request = connect_request(self.identity, nonce="n", signed_at_ms=42,
+                                  gateway_token="initial-token")
+        self.assertEqual(request["params"]["auth"], {"token": "initial-token"})
+
     def test_plaintext_gateway_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaises(ValueError):

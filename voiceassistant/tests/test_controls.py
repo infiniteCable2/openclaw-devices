@@ -95,7 +95,7 @@ class ControlsTests(unittest.TestCase):
         control.press(0)
         self.assertEqual(control.release(0.05), ())
         control.press(0.2)
-        self.assertEqual(control.release(0.25), (Action.LISTENING_STARTED,))
+        self.assertEqual(control.release(0.25), (Action.LISTENING_STARTED, Action.WAKE_REQUESTED))
         self.assertFalse(control.muted)
         self.assertEqual(control.tick(0.6), ())
         self.assertTrue(control.can_capture)
@@ -107,9 +107,17 @@ class ControlsTests(unittest.TestCase):
         control.press(0.2)
         self.assertEqual(
             control.release(0.25),
-            (Action.MUTE_CHANGED, Action.LISTENING_STARTED),
+            (Action.MUTE_CHANGED, Action.LISTENING_STARTED, Action.WAKE_REQUESTED),
         )
         self.assertTrue(control.can_capture)
+
+    def test_second_double_press_requests_retry_while_listening(self):
+        control = Controls(paired=True, muted=False)
+        control.wake(0)
+        control.press(1)
+        control.release(1.05)
+        control.press(1.2)
+        self.assertEqual(control.release(1.25), (Action.WAKE_REQUESTED,))
 
 
 if __name__ == "__main__":

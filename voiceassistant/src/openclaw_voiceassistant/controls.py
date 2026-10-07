@@ -15,6 +15,7 @@ class Action(str, Enum):
     MUTE_CHANGED = "mute_changed"
     VOLUME_CHANGED = "volume_changed"
     LISTENING_STARTED = "listening_started"
+    WAKE_REQUESTED = "wake_requested"
     LISTENING_ENDED = "listening_ended"
     PLAYBACK_CANCEL = "playback_cancel"
 
@@ -133,6 +134,7 @@ class Controls:
                 self.muted = False
                 actions.append(Action.MUTE_CHANGED)
             actions.extend(self.wake(now))
+            actions.append(Action.WAKE_REQUESTED)
             return tuple(actions)
         previous = self._toggle_mute() if self._tap_deadline is not None else ()
         self._tap_deadline = now + self.config.double_press_seconds

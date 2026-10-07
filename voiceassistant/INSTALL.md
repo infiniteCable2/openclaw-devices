@@ -37,6 +37,11 @@ The probes do not retain microphone audio. The second exercises the 16-kHz local
 
 `device-config.example.json` lists only public endpoint and local file paths. Copy it to a machine-local, untracked config, replace the example endpoint with a certificate-valid `wss://` Gateway name, and protect the state directory. Never put a token or private key in this repo or process arguments. The process uses the native signed node handshake and advertises only `voiceassistant.audio`:
 
+If the Gateway requires its shared token for first enrollment, a temporary
+`gatewayTokenPath` may point to a private, regular, mode-0600 file. This uses
+native `auth.token`, **not** a setup/bootstrap token. Remove that shared
+credential after the paired device has received its own `tokenPath` token.
+
 ```sh
 PYTHONPATH=src python3 -m openclaw_voiceassistant --config /absolute/private/device-config.json
 ```

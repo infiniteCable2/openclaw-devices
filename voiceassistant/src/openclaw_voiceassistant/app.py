@@ -73,7 +73,7 @@ class DeviceApp:
         if self.bridge.bridge_id is not None:
             self.controls.extend_listening(now)
         actions.extend(self.controls.tick(now))
-        if Action.LISTENING_STARTED in actions:
+        if Action.WAKE_REQUESTED in actions:
             self.bridge.note_wake()
         if self.controls.muted and self.bridge.bridge_id is not None:
             await self.bridge.stop()
@@ -128,9 +128,9 @@ def main() -> None:
         parser.error("configuration requires gatewayUrl")
     identity = DeviceIdentity.load_or_create(_required_path(config, "identityPath"))
     token_path = _required_path(config, "tokenPath")
-    bootstrap_path = (
-        _required_path(config, "bootstrapTokenPath")
-        if "bootstrapTokenPath" in config
+    gateway_token_path = (
+        _required_path(config, "gatewayTokenPath")
+        if "gatewayTokenPath" in config
         else None
     )
     with AudioProcessor(_required_path(config, "apmLibraryPath")) as processor:
@@ -140,7 +140,7 @@ def main() -> None:
             bridge = MediaBridge(audio, controls)
             node = GatewayNode(
                 config["gatewayUrl"], identity, bridge.command,
-                token_path=token_path, bootstrap_token_path=bootstrap_path,
+                token_path=token_path, gateway_token_path=gateway_token_path,
             )
             button = ReSpeakerButton()
             try:

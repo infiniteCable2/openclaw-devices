@@ -40,6 +40,20 @@ class GatewayNodeTests(unittest.TestCase):
                     GatewayNode(url, self.identity, lambda _: None,
                                 token_path=Path(root) / "token")
 
+    def test_private_tcp_override_preserves_certificate_name(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            node = GatewayNode(
+                "wss://gateway.example:19443/", self.identity, lambda _: None,
+                token_path=Path(root) / "token", connect_host="192.168.1.10",
+            )
+            self.assertEqual(node.connect_host, "192.168.1.10")
+            self.assertEqual(node.tls_name, "gateway.example")
+            self.assertEqual(node.port, 19443)
+            for invalid in ("8.8.8.8", "gateway.example", "127.0.0.1"):
+                with self.assertRaises(ValueError):
+                    GatewayNode("wss://gateway.example", self.identity, lambda _: None,
+                                token_path=Path(root) / "token", connect_host=invalid)
+
     def test_device_token_storage_is_private(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             node = GatewayNode(

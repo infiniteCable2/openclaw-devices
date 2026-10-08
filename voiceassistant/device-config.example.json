@@ -3,6 +3,7 @@
   "identityPath": "/var/lib/openclaw-voiceassistant/private/device.key",
   "tokenPath": "/var/lib/openclaw-voiceassistant/private/gateway.token",
   "apmLibraryPath": "/opt/openclaw-voiceassistant/build/libopenclaw-apm.so",
+  "wakeWordEnabled": false,
   "wakeEngine": "micro",
   "wakeModelManifest": "/opt/openclaw-voiceassistant/models/nova-mww/nova.json"
 }

@@ -46,6 +46,23 @@ def scale_pcm(pcm: bytes, volume: float) -> bytes:
     return samples.tobytes()
 
 
+def fade_pcm(pcm: bytes, start_sample: int, fade_samples: int) -> bytes:
+    """Ramp the first playout samples from silence after opening I²S."""
+    if len(pcm) != PLAYBACK_BYTES_PER_FRAME or fade_samples <= 0:
+        raise ValueError("invalid playback fade")
+    samples = array("h")
+    samples.frombytes(pcm)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    for index, sample in enumerate(samples):
+        position = start_sample + index
+        if position < fade_samples:
+            samples[index] = round(sample * (position + 1) / fade_samples)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples.tobytes()
+
+
 class ReSpeakerAudio:
     """Two named ALSA streams; no dependency on a mutable card number."""
 
@@ -82,6 +99,8 @@ class ReSpeakerAudio:
         self._capture_buffer = bytearray()
         self._reference_resampler = PcmResampler(PLAYBACK_SAMPLE_RATE, SAMPLE_RATE)
         self._reference_buffer = bytearray()
+        self._playback_started = False
+        self._fade_position = 0
 
     def _open_playback(self):
         stream = self._alsaaudio.PCM(
@@ -135,13 +154,27 @@ class ReSpeakerAudio:
             return self._processor.capture(raw, self._playback_delay_ms)
 
     def write(self, pcm: bytes, volume: float, generation: int = 0) -> None:
-        played = scale_pcm(pcm, volume)
+        scaled = scale_pcm(pcm, volume)
         with self._playback_lock:
             if generation != self._playback_generation:
                 return
+            if not self._playback_started:
+                # Keep the MAX98357A's first I²S samples at zero before any
+                # nonzero signal. This is a digital pre-roll, not a mute bypass.
+                silence = bytes(PLAYBACK_BYTES_PER_FRAME)
+                for _ in range(2):
+                    written = self._playback.write(silence)
+                    if written is not None and written != PLAYBACK_SAMPLES_PER_FRAME:
+                        raise RuntimeError("ALSA playback did not accept the silent pre-roll")
+                    self._processor.render(bytes(BYTES_PER_FRAME))
+                self._playback_started = True
+            played = fade_pcm(scaled, self._fade_position, PLAYBACK_SAMPLE_RATE // 50)
             written = self._playback.write(played)
             if written is not None and written != PLAYBACK_SAMPLES_PER_FRAME:
                 raise RuntimeError("ALSA playback did not accept the complete frame")
+            self._fade_position = min(
+                self._fade_position + PLAYBACK_SAMPLES_PER_FRAME, PLAYBACK_SAMPLE_RATE // 50,
+            )
             self._reference_buffer.extend(self._reference_resampler.process(played))
             while len(self._reference_buffer) >= BYTES_PER_FRAME:
                 reference = bytes(self._reference_buffer[:BYTES_PER_FRAME])
@@ -160,6 +193,8 @@ class ReSpeakerAudio:
             self._reference_resampler.close()
             self._reference_resampler = PcmResampler(PLAYBACK_SAMPLE_RATE, SAMPLE_RATE)
             self._reference_buffer.clear()
+            self._playback_started = False
+            self._fade_position = 0
 
     def close(self) -> None:
         self._capture.close()

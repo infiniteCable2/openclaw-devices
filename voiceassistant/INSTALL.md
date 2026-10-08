@@ -51,9 +51,28 @@ credential after the paired device has received its own `tokenPath` token.
 PYTHONPATH=src python3 -m openclaw_voiceassistant --config /absolute/private/device-config.json
 ```
 
-The candidate requires a private, absolute `wakeModelDirectory` containing the tested Sherpa-ONNX Nova model files and a locally prepared `keywords.txt`. Install the CPU-only Python runtime in the candidate environment; do not commit or distribute model weights from this repository until their redistribution license is resolved. The Pi starts muted. After Gateway admission, each short press cycles muted → wake-word → continuous → muted. A local Nova detection opens a six-second inactivity window, held by active speech/processing/playout. A remote agent can adjust 0–100% speaker volume and LED brightness, select an unmuted mode, or mute; it cannot override a physical button mute. Disconnect or revocation returns to mute and clears active media.
+The device config must explicitly choose `wakeEngine`. `micro` requires a
+private absolute `wakeModelManifest` path next to its TFLite model and the
+isolated Python dependencies `pymicro-wakeword==2.5.0` and
+`pymicro-features==2.0.2`. `sherpa` instead requires the older absolute
+`wakeModelDirectory`; there is no automatic fallback between engines. Never
+commit model weights or a private device config. The Pi starts muted. After
+Gateway admission, each short press cycles muted → wake-word → continuous →
+muted. A local Nova detection opens a six-second inactivity window, held by
+active speech/processing/playout. A remote agent can adjust 0–100% speaker
+volume and LED brightness, select an unmuted mode, or mute; it cannot override
+a physical button mute. Disconnect or revocation returns to mute and clears
+active media.
 
 The first real-device wake acceptance on 2026-10-07 **failed**: six spoken "Nova" calls produced no detection even with continuous keyword inference. The model's own reference word did detect, and offline raw/APM comparison plus pronunciation variants did not fix Nova. The gate and media path must not be mistaken for an accepted wake-word deployment. The bounded diagnostic tools in `tools/` do not retain audio by default; the consented calibration tool keeps its short capture only in process RAM and removes its temporary phoneme recipe from tmpfs.
+
+The experimental German microWakeWord replacement has the opposite problem:
+it recognizes synthetic `Nova` but falsely fires on many similar words. It is
+appropriate only for a supervised Pi trial with the physical button available
+to mute it immediately; do not leave wake-word mode active unattended. See
+[the measured prototype](docs/nova-microwakeword-prototype.md). Pi CPU/RAM and
+real-speaker wake/false-wake measurements are required before calling it
+accepted.
 
 The optional root-owned [`49-openclaw-voiceassistant-power.rules`](deploy/49-openclaw-voiceassistant-power.rules) authorizes only the dedicated runtime identity for login1 reboot and power-off. Install and verify it separately; do not broaden the service's sudo rights or disable `NoNewPrivileges`. A shutdown may require physical power to restore. Enable boot autostart only after password hardening, model/CPU validation, audio acceptance and a validated rollback.
 

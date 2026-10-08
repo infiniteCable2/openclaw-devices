@@ -21,6 +21,7 @@ from .gateway_identity import DeviceIdentity
 from .gateway_node import GatewayNode
 from .hardware import ReSpeakerButton, ReSpeakerLeds
 from .media_bridge import MediaBridge
+from .micro_wake_word import MicroWakeDetector
 from .wake_word import GatedWakeDetector, NovaWakeDetector
 
 
@@ -232,6 +233,16 @@ def _required_path(config: dict[str, Any], name: str) -> Path:
     return Path(value)
 
 
+def _wake_detector_from_config(config: dict[str, Any]) -> WakeDetector:
+    """Select one explicit local engine; never silently fall back to another."""
+    engine = config.get("wakeEngine")
+    if engine == "micro":
+        return GatedWakeDetector(MicroWakeDetector(_required_path(config, "wakeModelManifest")))
+    if engine == "sherpa":
+        return GatedWakeDetector(NovaWakeDetector(_required_path(config, "wakeModelDirectory")))
+    raise ValueError("wakeEngine must explicitly select micro or sherpa")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenClaw Pi voiceassistant")
     parser.add_argument("--config", type=Path, required=True)
@@ -254,7 +265,7 @@ def main() -> None:
         try:
             controls = Controls()
             bridge = MediaBridge(audio, controls)
-            detector = GatedWakeDetector(NovaWakeDetector(_required_path(config, "wakeModelDirectory")))
+            detector = _wake_detector_from_config(config)
             button = ReSpeakerButton()
             try:
                 leds = ReSpeakerLeds()

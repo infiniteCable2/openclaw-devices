@@ -8,8 +8,10 @@ and decides whether a processed frame may leave the device.
 from __future__ import annotations
 
 from array import array
+import errno
 import sys
 from threading import Lock
+import time
 from typing import Protocol
 
 from .apm import BYTES_PER_FRAME, SAMPLES_PER_FRAME
@@ -103,10 +105,26 @@ class ReSpeakerAudio:
         # flight briefly. Never let the next mode read the same ALSA stream or
         # shared frame buffer concurrently.
         with self._capture_lock:
+            empty_deadline = time.monotonic() + 0.25
+            overruns = 0
             while len(self._capture_buffer) < BYTES_PER_FRAME:
                 frames, data = self._capture.read()
+                if frames == -errno.EPIPE:
+                    # ALSA reports a recoverable capture overrun when a mode
+                    # change leaves the stream unread. Pyalsaaudio prepares it
+                    # for the next read; discard any partial stale frame.
+                    self._capture_buffer.clear()
+                    overruns += 1
+                    if overruns > 3:
+                        raise RuntimeError("ALSA capture overrun persisted")
+                    continue
+                if frames == 0 and not data:
+                    if time.monotonic() >= empty_deadline:
+                        raise RuntimeError("ALSA capture returned no audio")
+                    time.sleep(0.005)
+                    continue
                 if frames <= 0 or not data:
-                    raise RuntimeError("ALSA capture returned no audio")
+                    raise RuntimeError(f"ALSA capture read failed ({frames})")
                 if len(data) != frames * 2:
                     raise RuntimeError("ALSA capture returned an unexpected PCM size")
                 self._capture_buffer.extend(data)

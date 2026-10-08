@@ -51,7 +51,12 @@ credential after the paired device has received its own `tokenPath` token.
 PYTHONPATH=src python3 -m openclaw_voiceassistant --config /absolute/private/device-config.json
 ```
 
-The device config must explicitly choose `wakeEngine`. `micro` requires a
+Set `wakeWordEnabled` to `false` for the temporary button-only mode. Then a
+short press toggles muted ↔ continuous conversation, the keyword model is not
+loaded, and the local detector does not run. A remote request for wake-word
+mode is rejected; the physical mute remains binding. If `wakeWordEnabled` is
+`true` (the legacy default), the device config must explicitly choose
+`wakeEngine`. `micro` requires a
 private absolute `wakeModelManifest` path next to its TFLite model and the
 isolated Python dependencies `pymicro-wakeword==2.5.0` and
 `pymicro-features==2.0.2`. `sherpa` instead requires the older absolute

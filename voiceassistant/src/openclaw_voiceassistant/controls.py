@@ -49,6 +49,7 @@ class Controls:
     """Local mode, conversation and LED state; the button owns privacy mute."""
 
     config: ControlConfig = field(default_factory=ControlConfig)
+    wake_word_enabled: bool = True
     paired: bool = False
     mode: Mode = Mode.MUTED
     volume: float = 0.5
@@ -69,7 +70,8 @@ class Controls:
 
     @property
     def can_detect_wake(self) -> bool:
-        return self.paired and self.mode == Mode.WAKE_WORD and self.phase == Phase.IDLE
+        return (self.wake_word_enabled and self.paired and self.mode == Mode.WAKE_WORD
+                and self.phase == Phase.IDLE)
 
     @property
     def can_capture(self) -> bool:
@@ -109,7 +111,10 @@ class Controls:
         if not self.paired:
             return ()
         if self.mode == Mode.MUTED:
-            return self.set_mode(Mode.WAKE_WORD, now, from_button=True)
+            return self.set_mode(
+                Mode.WAKE_WORD if self.wake_word_enabled else Mode.CONTINUOUS,
+                now, from_button=True,
+            )
         if self.mode == Mode.WAKE_WORD:
             return self.set_mode(Mode.CONTINUOUS, now, from_button=True)
         return self.set_mode(Mode.MUTED, now, from_button=True)
@@ -117,6 +122,8 @@ class Controls:
     def set_mode(self, mode: Mode, now: float, *, from_button: bool = False) -> tuple[Action, ...]:
         if not self.paired:
             raise PermissionError("device is not paired")
+        if mode == Mode.WAKE_WORD and not self.wake_word_enabled:
+            raise ValueError("wake-word mode is disabled on this device")
         # A remotely requested mode cannot undo a physical button mute.
         if self.muted and self._physical_mute_latched and not from_button and mode != Mode.MUTED:
             raise PermissionError("physical button mute must be cleared locally")

@@ -4,6 +4,22 @@ from openclaw_voiceassistant.controls import Action, Controls, Indicator, Mode
 
 
 class ControlsTests(unittest.TestCase):
+    def test_button_only_mode_toggles_conversation_and_mute(self):
+        control = Controls(paired=True, wake_word_enabled=False)
+        self.assertFalse(control.can_detect_wake)
+        control.press(1)
+        self.assertEqual(control.release(1.1),
+                         (Action.MUTE_CHANGED, Action.LISTENING_STARTED,
+                          Action.WAKE_REQUESTED))
+        self.assertEqual(control.mode, Mode.CONTINUOUS)
+        self.assertTrue(control.can_capture)
+        control.press(2)
+        self.assertEqual(control.release(2.1),
+                         (Action.MUTE_CHANGED, Action.LISTENING_ENDED))
+        self.assertTrue(control.muted)
+        with self.assertRaisesRegex(ValueError, "wake-word mode is disabled"):
+            control.set_mode(Mode.WAKE_WORD, 3, from_button=True)
+
     def test_button_cycles_muted_wake_word_continuous_muted(self):
         control = Controls(paired=True)
         control.press(1)

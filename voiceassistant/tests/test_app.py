@@ -3,7 +3,9 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, patch
 
-from openclaw_voiceassistant.app import DeviceApp, _system_power, _wake_detector_from_config
+from openclaw_voiceassistant.app import (
+    DeviceApp, _system_power, _wake_detector_from_config, _wake_enabled_from_config,
+)
 from openclaw_voiceassistant.controls import Controls, Indicator, Mode
 from openclaw_voiceassistant.wake_word import GatedWakeDetector
 
@@ -48,6 +50,12 @@ class FakeBridge:
 
 
 class DeviceAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disabled_wake_skips_engine_and_rejects_non_boolean(self):
+        self.assertFalse(_wake_enabled_from_config({"wakeWordEnabled": False}))
+        self.assertTrue(_wake_enabled_from_config({}))
+        with self.assertRaisesRegex(ValueError, "wakeWordEnabled"):
+            _wake_enabled_from_config({"wakeWordEnabled": "false"})
+
     async def test_wake_engine_requires_explicit_selection(self):
         with self.assertRaisesRegex(ValueError, "wakeEngine"):
             _wake_detector_from_config({})

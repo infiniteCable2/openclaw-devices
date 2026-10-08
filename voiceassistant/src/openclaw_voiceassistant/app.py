@@ -219,7 +219,8 @@ class DeviceApp:
             async with asyncio.TaskGroup() as tasks:
                 tasks.create_task(self._button_loop())
                 tasks.create_task(self._gateway_loop())
-                tasks.create_task(self._wake_loop())
+                if self.controls.wake_word_enabled:
+                    tasks.create_task(self._wake_loop())
         finally:
             await self.disconnected()
             self.button.close()
@@ -243,6 +244,13 @@ def _wake_detector_from_config(config: dict[str, Any]) -> WakeDetector:
     raise ValueError("wakeEngine must explicitly select micro or sherpa")
 
 
+def _wake_enabled_from_config(config: dict[str, Any]) -> bool:
+    enabled = config.get("wakeWordEnabled", True)
+    if type(enabled) is not bool:
+        raise ValueError("wakeWordEnabled must be a boolean")
+    return enabled
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenClaw Pi voiceassistant")
     parser.add_argument("--config", type=Path, required=True)
@@ -263,9 +271,10 @@ def main() -> None:
     with AudioProcessor(_required_path(config, "apmLibraryPath")) as processor:
         audio = ReSpeakerAudio(processor)
         try:
-            controls = Controls()
+            wake_enabled = _wake_enabled_from_config(config)
+            controls = Controls(wake_word_enabled=wake_enabled)
             bridge = MediaBridge(audio, controls)
-            detector = _wake_detector_from_config(config)
+            detector = _wake_detector_from_config(config) if wake_enabled else None
             button = ReSpeakerButton()
             try:
                 leds = ReSpeakerLeds()
@@ -274,7 +283,7 @@ def main() -> None:
                 raise
             app = DeviceApp(
                 controls=controls, bridge=bridge, button=button, leds=leds, node=None,
-                wake_detector=detector, audio_input=audio,
+                wake_detector=detector, audio_input=audio if wake_enabled else None,
             )
             node = GatewayNode(
                 config["gatewayUrl"], identity, app.command,

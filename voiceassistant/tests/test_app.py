@@ -4,7 +4,8 @@ import time
 from unittest.mock import AsyncMock, patch
 
 from openclaw_voiceassistant.app import (
-    DeviceApp, _system_power, _wake_detector_from_config, _wake_enabled_from_config,
+    DeviceApp, _audio_frontend_from_config, _system_power,
+    _wake_detector_from_config, _wake_enabled_from_config,
 )
 from openclaw_voiceassistant.controls import Controls, Indicator, Mode
 from openclaw_voiceassistant.wake_word import GatedWakeDetector
@@ -50,6 +51,20 @@ class FakeBridge:
 
 
 class DeviceAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_audio_frontend_is_explicit_and_validated(self):
+        self.assertEqual(_audio_frontend_from_config({})[:2], (1, 40))
+        channels, delay, leveler, ducker = _audio_frontend_from_config({
+            "captureChannels": 2, "playbackDelayMs": 90, "prelevelEnabled": True,
+            "bargeDuckingEnabled": True,
+        })
+        self.assertEqual((channels, delay), (2, 90))
+        self.assertIsNotNone(leveler)
+        self.assertIsNotNone(ducker)
+        for value in ({"captureChannels": 3}, {"playbackDelayMs": -1},
+                      {"prelevelEnabled": "yes"}, {"bargeDuckingEnabled": "yes"}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                _audio_frontend_from_config(value)
+
     async def test_disabled_wake_skips_engine_and_rejects_non_boolean(self):
         self.assertFalse(_wake_enabled_from_config({"wakeWordEnabled": False}))
         self.assertTrue(_wake_enabled_from_config({}))

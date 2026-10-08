@@ -22,6 +22,7 @@ from .gateway_node import GatewayNode
 from .hardware import ReSpeakerButton, ReSpeakerLeds
 from .media_bridge import MediaBridge
 from .micro_wake_word import MicroWakeDetector
+from .prelevel import NearEndDucker, SpeechPreLeveler
 from .wake_word import GatedWakeDetector, NovaWakeDetector
 
 
@@ -251,6 +252,28 @@ def _wake_enabled_from_config(config: dict[str, Any]) -> bool:
     return enabled
 
 
+def _audio_frontend_from_config(
+    config: dict[str, Any]
+) -> tuple[int, int, SpeechPreLeveler | None, NearEndDucker | None]:
+    channels = config.get("captureChannels", 1)
+    delay_ms = config.get("playbackDelayMs", 40)
+    prelevel_enabled = config.get("prelevelEnabled", False)
+    duck_enabled = config.get("bargeDuckingEnabled", False)
+    if type(channels) is not int or channels not in (1, 2):
+        raise ValueError("captureChannels must be 1 or 2")
+    if type(delay_ms) is not int or not 0 <= delay_ms <= 500:
+        raise ValueError("playbackDelayMs must be between 0 and 500")
+    if type(prelevel_enabled) is not bool:
+        raise ValueError("prelevelEnabled must be a boolean")
+    if type(duck_enabled) is not bool:
+        raise ValueError("bargeDuckingEnabled must be a boolean")
+    return (
+        channels, delay_ms,
+        SpeechPreLeveler() if prelevel_enabled else None,
+        NearEndDucker() if duck_enabled else None,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenClaw Pi voiceassistant")
     parser.add_argument("--config", type=Path, required=True)
@@ -269,7 +292,11 @@ def main() -> None:
     if connect_host is not None and not isinstance(connect_host, str):
         parser.error("gatewayConnectHost must be a private IP address")
     with AudioProcessor(_required_path(config, "apmLibraryPath")) as processor:
-        audio = ReSpeakerAudio(processor)
+        channels, delay_ms, preleveler, ducker = _audio_frontend_from_config(config)
+        audio = ReSpeakerAudio(
+            processor, capture_channels=channels, playback_delay_ms=delay_ms,
+            preleveler=preleveler, near_end_ducker=ducker,
+        )
         try:
             wake_enabled = _wake_enabled_from_config(config)
             controls = Controls(wake_word_enabled=wake_enabled)

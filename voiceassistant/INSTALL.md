@@ -33,6 +33,15 @@ PYTHONPATH=src python3 -m openclaw_voiceassistant.smoke_bridge --library build/l
 
 The probes do not retain microphone audio. The second exercises the 16-kHz local AEC path and 24-kHz Meeting transport shape without a server. The delay estimate is currently 40 ms; calibrate it with real simultaneous speaker and mic activity before claiming acoustic echo cancellation quality.
 
+The optional stereo capture, bounded Pi-side prelevel and near-end playout
+ducking are documented in [the Pi audio frontend candidate](docs/pi-audio-front-end.md).
+They remain disabled by default. Do not select the example low-latency ALSA
+configuration or set `captureChannels: 2`, `prelevelEnabled: true` or
+`bargeDuckingEnabled: true` in the private device config until the Pi hardware
+acceptance in that document passes. `playbackDelayMs` is a coarse AEC hint,
+not a substitute for measuring the final ALSA path. The server Meeting engine
+continues to own confirmed barge-in and the final speech-level controller.
+
 ## Device process, after server integration
 
 `device-config.example.json` lists only public endpoint and local file paths. Copy it to a machine-local, untracked config, replace the example endpoint with a certificate-valid `wss://` Gateway name, and protect the state directory. Never put a token or private key in this repo or process arguments. The process uses the native signed node handshake and advertises only `voiceassistant.audio`:

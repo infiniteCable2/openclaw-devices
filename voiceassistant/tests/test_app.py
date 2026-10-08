@@ -3,8 +3,9 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, patch
 
-from openclaw_voiceassistant.app import DeviceApp, _system_power
+from openclaw_voiceassistant.app import DeviceApp, _system_power, _wake_detector_from_config
 from openclaw_voiceassistant.controls import Controls, Indicator, Mode
+from openclaw_voiceassistant.wake_word import GatedWakeDetector
 
 
 class FakeButton:
@@ -47,6 +48,23 @@ class FakeBridge:
 
 
 class DeviceAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_wake_engine_requires_explicit_selection(self):
+        with self.assertRaisesRegex(ValueError, "wakeEngine"):
+            _wake_detector_from_config({})
+        with self.assertRaisesRegex(ValueError, "wakeEngine"):
+            _wake_detector_from_config({"wakeEngine": "other"})
+
+    async def test_micro_wake_engine_uses_manifest_without_sherpa_fallback(self):
+        with patch("openclaw_voiceassistant.app.MicroWakeDetector") as micro, \
+                patch("openclaw_voiceassistant.app.NovaWakeDetector") as sherpa:
+            result = _wake_detector_from_config({
+                "wakeEngine": "micro", "wakeModelManifest": "/private/nova.json",
+            })
+            self.assertIsInstance(result, GatedWakeDetector)
+            micro.assert_called_once()
+            self.assertEqual(str(micro.call_args.args[0]), "/private/nova.json")
+            sherpa.assert_not_called()
+
     async def test_second_press_enters_continuous_after_wake_mode(self):
         controls = Controls()
         button, leds, bridge = FakeButton(), FakeLeds(), FakeBridge()

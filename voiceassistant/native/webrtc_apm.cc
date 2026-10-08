@@ -11,9 +11,17 @@ namespace {
 constexpr int kSampleRate = 16000;
 constexpr int kFrameSamples = 160;
 
+struct AcousticStats {
+  int voice_detected;
+  int output_rms_dbfs;
+  int estimated_delay_ms;
+  float residual_echo_likelihood;
+};
+
 struct Processor {
   rtc::scoped_refptr<webrtc::AudioProcessing> apm;
   webrtc::StreamConfig stream{kSampleRate, 1};
+  webrtc::StreamConfig stereo_stream{kSampleRate, 2};
   std::mutex mutex;
 };
 }  // namespace
@@ -29,12 +37,15 @@ void* openclaw_apm_create() {
   webrtc::AudioProcessing::Config config;
   config.echo_canceller.enabled = true;
   config.echo_canceller.mobile_mode = false;
+  config.pipeline.multi_channel_capture = true;
   config.noise_suppression.enabled = true;
   config.noise_suppression.level =
       webrtc::AudioProcessing::Config::NoiseSuppression::kModerate;
   config.high_pass_filter.enabled = true;
   config.gain_controller1.enabled = false;
   config.gain_controller2.enabled = false;
+  config.voice_detection.enabled = true;
+  config.level_estimation.enabled = true;
   state->apm->ApplyConfig(config);
   return state.release();
 }
@@ -66,5 +77,35 @@ int openclaw_apm_capture(void* handle, const int16_t* samples, int count,
     return delay_result;
   }
   return state.apm->ProcessStream(samples, state.stream, state.stream, output);
+}
+
+int openclaw_apm_capture_stereo(void* handle, const int16_t* samples, int count,
+                                int delay_ms, int16_t* output) {
+  if (!handle || !samples || !output || count != kFrameSamples * 2 || delay_ms < 0 ||
+      delay_ms > 500) {
+    return -1;
+  }
+  auto& state = *static_cast<Processor*>(handle);
+  std::lock_guard<std::mutex> lock(state.mutex);
+  const int delay_result = state.apm->set_stream_delay_ms(delay_ms);
+  if (delay_result != 0) {
+    return delay_result;
+  }
+  return state.apm->ProcessStream(samples, state.stereo_stream, state.stream, output);
+}
+
+int openclaw_apm_get_stats(void* handle, AcousticStats* output) {
+  if (!handle || !output) {
+    return -1;
+  }
+  auto& state = *static_cast<Processor*>(handle);
+  std::lock_guard<std::mutex> lock(state.mutex);
+  const auto stats = state.apm->GetStatistics();
+  output->voice_detected = stats.voice_detected ? (*stats.voice_detected ? 1 : 0) : -1;
+  output->output_rms_dbfs = stats.output_rms_dbfs.value_or(-128);
+  output->estimated_delay_ms = stats.delay_ms.value_or(-1);
+  output->residual_echo_likelihood =
+      stats.residual_echo_likelihood ? static_cast<float>(*stats.residual_echo_likelihood) : -1.0f;
+  return 0;
 }
 }

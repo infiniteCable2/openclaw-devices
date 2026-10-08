@@ -14,7 +14,8 @@ from threading import Lock
 import time
 from typing import Protocol
 
-from .apm import BYTES_PER_FRAME, SAMPLES_PER_FRAME
+from .apm import AcousticStats, BYTES_PER_FRAME, SAMPLES_PER_FRAME
+from .prelevel import NearEndDucker, PrelevelResult, SpeechPreLeveler
 from .resample import PcmResampler
 
 
@@ -27,6 +28,8 @@ PLAYBACK_BYTES_PER_FRAME = PLAYBACK_SAMPLES_PER_FRAME * 2
 class EchoProcessor(Protocol):
     def render(self, pcm: bytes) -> None: ...
     def capture(self, pcm: bytes, delay_ms: int) -> bytes: ...
+    def capture_stereo(self, pcm: bytes, delay_ms: int) -> bytes: ...
+    def stats(self) -> AcousticStats: ...
 
 
 def scale_pcm(pcm: bytes, volume: float) -> bytes:
@@ -66,9 +69,15 @@ def fade_pcm(pcm: bytes, start_sample: int, fade_samples: int) -> bytes:
 class ReSpeakerAudio:
     """Two named ALSA streams; no dependency on a mutable card number."""
 
-    def __init__(self, processor: EchoProcessor, *, playback_delay_ms: int = 40) -> None:
+    def __init__(
+        self, processor: EchoProcessor, *, playback_delay_ms: int = 40,
+        capture_channels: int = 1, preleveler: SpeechPreLeveler | None = None,
+        near_end_ducker: NearEndDucker | None = None,
+    ) -> None:
         if not 0 <= playback_delay_ms <= 500:
             raise ValueError("playback_delay_ms must be in [0, 500]")
+        if capture_channels not in (1, 2):
+            raise ValueError("capture_channels must be 1 or 2")
         import alsaaudio
 
         cards = alsaaudio.cards()
@@ -85,7 +94,7 @@ class ReSpeakerAudio:
         )
         try:
             self._playback = self._open_playback()
-            self._capture.setchannels(1)
+            self._capture.setchannels(capture_channels)
             self._capture.setrate(SAMPLE_RATE)
             self._capture.setformat(alsaaudio.PCM_FORMAT_S16_LE)
             self._capture.setperiodsize(SAMPLES_PER_FRAME)
@@ -96,6 +105,12 @@ class ReSpeakerAudio:
             raise
         self._processor = processor
         self._playback_delay_ms = playback_delay_ms
+        self._capture_channels = capture_channels
+        self._capture_frame_bytes = BYTES_PER_FRAME * capture_channels
+        self._preleveler = preleveler
+        self._near_end_ducker = near_end_ducker
+        self._last_prelevel: PrelevelResult | None = None
+        self._last_acoustic_stats: AcousticStats | None = None
         self._capture_buffer = bytearray()
         self._reference_resampler = PcmResampler(PLAYBACK_SAMPLE_RATE, SAMPLE_RATE)
         self._reference_buffer = bytearray()
@@ -126,7 +141,7 @@ class ReSpeakerAudio:
         with self._capture_lock:
             empty_deadline = time.monotonic() + 0.25
             overruns = 0
-            while len(self._capture_buffer) < BYTES_PER_FRAME:
+            while len(self._capture_buffer) < self._capture_frame_bytes:
                 frames, data = self._capture.read()
                 if frames == -errno.EPIPE:
                     # ALSA reports a recoverable capture overrun when a mode
@@ -144,17 +159,35 @@ class ReSpeakerAudio:
                     continue
                 if frames <= 0 or not data:
                     raise RuntimeError(f"ALSA capture read failed ({frames})")
-                if len(data) != frames * 2:
+                if len(data) != frames * 2 * self._capture_channels:
                     raise RuntimeError("ALSA capture returned an unexpected PCM size")
                 self._capture_buffer.extend(data)
-                if len(self._capture_buffer) > BYTES_PER_FRAME * 20:
+                if len(self._capture_buffer) > self._capture_frame_bytes * 20:
                     raise RuntimeError("ALSA capture exceeded the bounded frame buffer")
-            raw = bytes(self._capture_buffer[:BYTES_PER_FRAME])
-            del self._capture_buffer[:BYTES_PER_FRAME]
-            return self._processor.capture(raw, self._playback_delay_ms)
+            raw = bytes(self._capture_buffer[:self._capture_frame_bytes])
+            del self._capture_buffer[:self._capture_frame_bytes]
+            if self._capture_channels == 2:
+                processed = self._processor.capture_stereo(raw, self._playback_delay_ms)
+            else:
+                processed = self._processor.capture(raw, self._playback_delay_ms)
+            if self._preleveler is not None or self._near_end_ducker is not None:
+                self._last_acoustic_stats = self._processor.stats()
+            if self._near_end_ducker is not None and self._last_acoustic_stats is not None:
+                self._near_end_ducker.observe(self._last_acoustic_stats)
+            if self._preleveler is not None and self._last_acoustic_stats is not None:
+                self._last_prelevel = self._preleveler.process(processed, self._last_acoustic_stats)
+                return self._last_prelevel.pcm
+            return processed
+
+    def acoustic_stats(self) -> AcousticStats:
+        return self._last_acoustic_stats or self._processor.stats()
+
+    def prelevel_stats(self) -> PrelevelResult | None:
+        return self._last_prelevel
 
     def write(self, pcm: bytes, volume: float, generation: int = 0) -> None:
-        scaled = scale_pcm(pcm, volume)
+        duck = self._near_end_ducker.volume_factor if self._near_end_ducker is not None else 1.0
+        scaled = scale_pcm(pcm, volume * duck)
         with self._playback_lock:
             if generation != self._playback_generation:
                 return
@@ -195,6 +228,8 @@ class ReSpeakerAudio:
             self._reference_buffer.clear()
             self._playback_started = False
             self._fade_position = 0
+            if self._near_end_ducker is not None:
+                self._near_end_ducker.reset()
 
     def close(self) -> None:
         self._capture.close()

@@ -30,5 +30,5 @@ The same onboarding UI may hide transport differences, but do not claim that an 
 - Wi-Fi join persists only the selected network; AP exits and no setup portal remains reachable.
 - Gateway rejects an unpaired device, unknown/changed public key and unapproved capability expansion.
 - TLS is required on LAN and remote route; wrong certificate/pin is rejected.
-- The device is bound to example_owner's agent voice profile, not a default or a second session namespace.
+- The device is bound to the explicitly approved agent's voice profile, not a default or a second session namespace. Any agent/site names in examples are fictional and must be replaced with the protected deployment identities during enrollment.
 - Mute blocks every microphone mode, including future calls and live listen; revocation closes active media promptly.

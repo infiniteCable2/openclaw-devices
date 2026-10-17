@@ -2,12 +2,16 @@
 
 No device is deployed or paired by adding this source. Run against an isolated
 Gateway and synthetic test endpoints first. Record firmware/source revision,
-board/flash variant, dependency lock, measured free/minimum heap, results and
-the cleanup performed. Do not record passwords, tokens or network payloads.
+board profile/chip/flash variant, that profile's dependency lock, measured
+free/minimum heap, results and the cleanup performed. Do not record passwords,
+tokens or network payloads.
 
-- First boot: unique serial setup password, WPA2 AP, authenticated page/API;
+- First boot: unique USB-queryable setup password, WPA2 AP, authenticated page/API;
   no credential appears in a status response. Test bad/missing Basic auth,
   missing/wrong CSRF, cross-origin requests and oversized input.
+- Hardware profile: verify flash size/mode, the configured BOOT/reset pin and
+  serial console on that actual carrier. Confirm image and partitions fit the
+  detected flash; a generic board definition does not identify the carrier.
 - Wi-Fi: valid/invalid SSID/password, no DHCP, link loss for more than 30 s,
   restored link, multiple AP clients. Setup AP closes after a station IP returns;
   test a short outage that restores the same IP before the old TCP socket times
@@ -33,9 +37,18 @@ the cleanup performed. Do not record passwords, tokens or network payloads.
   and grant revocation. No local-network fallback or session replay.
 - Probes: real ICMP echo, no reply, refused/open TCP port, partial/cancelled
   scan, reconnect during a running job, per-target/total budgets.
+- Provisioning upgrade: flash the new partition table and app while preserving
+  default NVS. Confirm the existing sticker password is migrated unchanged;
+  interrupt/retry a migration and check fail-closed storage errors. Reboot and
+  query via USB; ensure no LAN/Gateway/private-key secrets appear in the reply.
 - Reset: authenticated reset and physical GPIO0 hold after boot. Observe a new
-  identity/password and empty settings. No older Gateway data or agent state is
-  restored. Revoke the previous Gateway pairing independently.
+  OpenClaw identity and empty settings, with the SAME hotspot SSID/password.
+  Web login returns to admin/sticker password. Repeat reset/reboot and query USB.
+  No older Gateway data or agent state is restored. Revoke the previous Gateway
+  pairing independently. A full-chip erase intentionally removes sticker data.
+- USB: correct/incorrect port, missing cable, occupied monitor, old firmware,
+  fragmented replies, boot noise and oversized lines. The reader must time out
+  cleanly, avoid deliberate DTR/RTS reset and close the port after success/error.
 - Soak: repeated Wi-Fi/Gateway loss during concurrent traffic and HTTP use;
   verify minimum heap, task stacks, bounded socket count and watchdog stability.
 

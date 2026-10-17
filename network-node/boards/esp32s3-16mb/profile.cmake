@@ -1,0 +1,3 @@
+set(NETWORK_NODE_TARGET esp32s3)
+set(NETWORK_NODE_FLASH_SIZE "16MB")
+set(NETWORK_NODE_PARTITIONS "boards/esp32s3-16mb/partitions.csv")

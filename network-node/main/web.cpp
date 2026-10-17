@@ -151,7 +151,7 @@ static esp_err_t reset(httpd_req_t *req) {
     if (!string_field(json.get(), "confirmation", 16, confirmation) || confirmation != "RESET" ||
         !string_field(json.get(), "password", 72, current) || !verify_password(current))
         return message(req, "400 Bad Request", "Enter RESET and the current password");
-    message(req, "200 OK", "Factory reset scheduled. Wi-Fi, configuration, passwords and device identity will be erased.");
+    message(req, "200 OK", "Factory reset scheduled. Wi-Fi, rules and device identity will be erased. Sticker credentials stay; the web password returns to the sticker password.");
     schedule_restart(true); return ESP_OK;
 }
 static esp_err_t clock_set(httpd_req_t *req) {

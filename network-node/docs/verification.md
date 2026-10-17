@@ -1,5 +1,10 @@
 # Software verification — 2026-10-17
 
+This records the original S3 implementation/layout published in `effc229`.
+Later [board-profile builds](verification-boards.md) are recorded separately;
+the input fingerprint below describes that original layout before files moved
+into board directories.
+
 Software verified against devices base commit
 `2b37410d29f766f80757cfdc9ecdd429b6d08462` before publication. No device was
 flashed, Gateway contacted or agent state changed.

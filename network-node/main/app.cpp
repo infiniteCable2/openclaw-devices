@@ -1,9 +1,11 @@
 #include "settings.hpp"
+#include "provision.hpp"
 #include "network.hpp"
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 #include "driver/gpio.h"
+#include "netnode_board.hpp"
 #include "bootloader_random.h"
 #include "esp_event.h"
 #include "esp_mac.h"
@@ -66,9 +68,8 @@ static void configure_wifi() {
     std::memcpy(station.sta.password, settings.wifi_password.data(), settings.wifi_password.size());
     station.sta.pmf_cfg.capable = true;
     wifi_config_t hotspot{};
-    uint8_t mac[6]; ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
-    std::snprintf(reinterpret_cast<char *>(hotspot.ap.ssid), sizeof(hotspot.ap.ssid),
-        "OpenClaw-Setup-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    std::string ssid = setup_ssid();
+    std::memcpy(hotspot.ap.ssid, ssid.c_str(), ssid.size() + 1);
     hotspot.ap.ssid_len = std::strlen(reinterpret_cast<char *>(hotspot.ap.ssid));
     std::memcpy(hotspot.ap.password, ap_password.data(), ap_password.size());
     hotspot.ap.channel = 1; hotspot.ap.max_connection = 2; hotspot.ap.authmode = WIFI_AUTH_WPA2_PSK;
@@ -113,8 +114,8 @@ void run() {
     bootloader_random_enable(); settings_load(); bootloader_random_disable();
     network_init();
     gateway_mutex = xSemaphoreCreateMutex(); ESP_ERROR_CHECK(gateway_mutex ? ESP_OK : ESP_ERR_NO_MEM);
-    configure_wifi(); setup_node(); web_start();
-    gpio_config_t button{}; button.pin_bit_mask = 1ULL << GPIO_NUM_0;
+    configure_wifi(); setup_node(); web_start(); setup_console_start();
+    gpio_config_t button{}; button.pin_bit_mask = 1ULL << board::factory_reset_pin;
     button.mode = GPIO_MODE_INPUT; button.pull_up_en = GPIO_PULLUP_ENABLE; ESP_ERROR_CHECK(gpio_config(&button));
     int64_t offline_since = milliseconds(), wifi_retry = 0, pressed_since = 0;
     while (!stopping) {
@@ -136,11 +137,11 @@ void run() {
             }
             if (!settings.ssid.empty() && now >= wifi_retry) { esp_wifi_connect(); wifi_retry = now + 10000; }
         }
-        if (!gpio_get_level(GPIO_NUM_0)) {
+        if (!gpio_get_level(board::factory_reset_pin)) {
             if (!pressed_since) pressed_since = now;
             else if (now - pressed_since >= 10000) schedule_restart(true);
         } else pressed_since = 0;
-        try_connect(); vTaskDelay(pdMS_TO_TICKS(250));
+        setup_console_poll(); try_connect(); vTaskDelay(pdMS_TO_TICKS(250));
     }
     vTaskDelete(nullptr);
 }

@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "provision.hpp"
 #include <cstdio>
 #include <cstring>
 #include "esp_random.h"
@@ -76,19 +77,14 @@ void settings_load() {
         ESP_ERROR_CHECK(valid ? ESP_OK : ESP_ERR_INVALID_STATE);
         settings = next;
     }
-    ap_password = read_string(handle, "ap_password", 63);
-    if (ap_password.empty()) {
-        ap_password = random_hex(12);
-        ESP_ERROR_CHECK(nvs_set_str(handle, "ap_password", ap_password.c_str()));
-    }
+    ESP_ERROR_CHECK(load_setup_password(handle, ap_password));
     size_t size = sizeof(credential);
     esp_err_t found = nvs_get_blob(handle, "web_auth", &credential, &size);
     ESP_ERROR_CHECK(nvs_commit(handle));
     nvs_close(handle);
     if (found == ESP_ERR_NVS_NOT_FOUND) {
         ESP_ERROR_CHECK(change_password(ap_password) ? ESP_OK : ESP_FAIL);
-        // One-time serial provisioning output. Never print Gateway or Wi-Fi credentials.
-        std::printf("\nOpenClaw network node initial setup\nUser: admin\nSetup Wi-Fi and initial web password: %s\n", ap_password.c_str());
+        std::printf("\nOpenClaw network node initial setup\nUse the USB setup-access tool for sticker credentials.\n");
     } else ESP_ERROR_CHECK(found == ESP_OK && size == sizeof(credential) ? ESP_OK : ESP_ERR_INVALID_STATE);
 }
 static bool store_config(const Settings &next, const std::string &setup_code) {
@@ -146,7 +142,8 @@ static void restart_task(void *arg) {
     vTaskDelay(pdMS_TO_TICKS(500));
     gateway_shutdown();
     network_invalidate();
-    if (reset) ESP_ERROR_CHECK(nvs_flash_erase()); // Includes the native component's identity/session.
+    // Default NVS includes the native identity/session; separate provision NVS survives.
+    if (reset) ESP_ERROR_CHECK(nvs_flash_erase());
     esp_restart();
 }
 void schedule_restart(bool factory_reset) {

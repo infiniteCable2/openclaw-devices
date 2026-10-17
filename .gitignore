@@ -44,3 +44,10 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# ESP-IDF / PlatformIO generated output
+.pio/
+managed_components/
+sdkconfig
+sdkconfig.old
+sdkconfig.esp32*

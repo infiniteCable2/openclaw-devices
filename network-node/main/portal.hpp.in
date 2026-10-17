@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr char portal_html[] = R"OPENCLAW_HTML(@PORTAL_HTML@)OPENCLAW_HTML";

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenClaw · Network Node</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#e8eff8;background:#101722;color-scheme:dark;line-height:1.5}
+*{box-sizing:border-box}body{max-width:900px;margin:auto;padding:36px 20px 70px}h1{font-size:2rem;margin:4px 0 8px}h2{font-size:1.15rem;margin:0 0 18px}p{color:#aebed3;margin:8px 0 20px}header{margin-bottom:26px}.eyebrow{color:#74dfbd;letter-spacing:.13em;font-size:.75rem;text-transform:uppercase}.card{background:#192332;border:1px solid #2c3d53;border-radius:14px;padding:24px;margin:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}label{display:block;color:#cad8e9;font-size:.9rem;margin:0 0 16px}input,select,textarea,button{font:inherit}input:not([type=checkbox]),select,textarea{display:block;background:#101a28;color:#edf4ff;border:1px solid #40536e;border-radius:7px;padding:10px;width:100%;margin-top:6px}textarea{resize:vertical;min-height:100px;font-family:ui-monospace,monospace;font-size:.8rem}input:focus,select:focus,textarea:focus,button:focus{outline:2px solid #74dfbd;outline-offset:2px}small{display:block;color:#aebed3;font-size:.8rem;margin-top:5px}button{border:0;border-radius:7px;background:#74dfbd;color:#10251e;padding:11px 18px;cursor:pointer;font-weight:650}button.secondary{background:#30425b;color:#e8eff8}button.danger{background:#ffc4bb;color:#3d1612}button:disabled{opacity:.5;cursor:wait}.checks{display:flex;gap:24px;flex-wrap:wrap}.checks label{display:flex;align-items:center;gap:8px}.rules{overflow:auto}table{width:100%;border-collapse:collapse;font-size:.85rem}th{text-align:left;color:#aebed3;font-weight:500}td{padding:5px 5px 5px 0}td input{min-width:80px}td:first-child input{min-width:150px}td:nth-child(5) input{min-width:165px}.status{display:flex;gap:10px;flex-wrap:wrap}.pill{background:#101a28;border:1px solid #40536e;border-radius:30px;padding:6px 12px;font-size:.85rem}.pill.good{border-color:#74dfbd;color:#74dfbd}#notice{position:sticky;top:12px;z-index:1;white-space:pre-wrap;background:#263d57;border:1px solid #76a2ce;padding:14px 18px;border-radius:9px;margin-bottom:20px}#notice[hidden]{display:none}.actions{margin-top:20px;display:flex;gap:12px;align-items:center}details summary{cursor:pointer;color:#cad8e9;margin-bottom:12px}footer{color:#8ea3bf;font-size:.8rem;margin-top:25px}@media(max-width:640px){.grid{grid-template-columns:1fr}.card{padding:18px}body{padding-top:24px}h1{font-size:1.65rem}}
+</style>
+</head>
+<body>
+<header><div class="eyebrow">OpenClaw Devices</div><h1>Network Node</h1><p>Ein Netzwerkzugang für deine Agenten. Einrichtung und Verwaltung direkt auf dem Gerät.</p><div class="status"><span id="wifiState" class="pill">WLAN wird geprüft</span><span id="gatewayState" class="pill">OpenClaw wird geprüft</span><span id="address" class="pill"></span></div></header>
+<div id="notice" role="status" aria-live="polite" hidden></div>
+<form id="settingsForm">
+<section class="card"><h2>WLAN</h2><div class="grid"><label>Netzwerkname (SSID)<input id="ssid" maxlength="32" autocomplete="off"><small>ESP32-S3 verbindet sich mit 2,4-GHz-WLAN.</small></label><label>WLAN-Passwort<input id="wifiPassword" type="password" maxlength="63" autocomplete="new-password"><small id="wifiHint">Leer lassen, um das gespeicherte Passwort zu behalten.</small></label></div><label><input id="clearWifiPassword" type="checkbox"> Offenes WLAN: gespeichertes WLAN-Passwort löschen</label><p>Ohne WLAN-Verbindung erscheint der geschützte Setup-Hotspot. Adresse: <strong>http://192.168.4.1</strong>. Sein Passwort wurde bei der Ersteinrichtung über USB ausgegeben.</p></section>
+<section class="card"><h2>OpenClaw-Zugang</h2><div class="grid"><label>Netzwerkkontext<input id="context" required pattern="[a-z0-9_-]+" maxlength="48"><small>Zum Beispiel node1. „local“ ist für den OpenClaw-Rechner reserviert.</small></label><label>Gateway-Adresse<input id="gateway" placeholder="wss://gateway.example.org" maxlength="256" autocomplete="off"><small>Verschlüsselte Verbindung mit gültigem Serverzertifikat.</small></label></div><label>OpenClaw-Setup-Code<input id="setupCode" type="password" maxlength="2048" autocomplete="off"><small>Für die Erstkopplung oder erneute Anmeldung. Die URL im Code muss mit der Gateway-Adresse übereinstimmen. Bereits gekoppelte Geräte benötigen keinen neuen Code.</small></label><details><summary>Eigene Zertifizierungsstelle</summary><label>CA-Zertifikat (PEM)<textarea id="ca" maxlength="4096" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"></textarea><small>Leer verwendet die eingebauten öffentlichen Zertifizierungsstellen.</small></label></details></section>
+<section class="card" id="clockCard" hidden><h2>Gerätezeit</h2><p>Für die Prüfung der OpenClaw-Zertifikate benötigt das Gerät die aktuelle Uhrzeit. Ohne erreichbaren Zeitserver kannst du sie aus deinem Browser übernehmen.</p><button id="setClock" class="secondary" type="button">Uhrzeit vom Browser übernehmen</button></section>
+<section class="card"><h2>Netzwerkfreigaben</h2><label>Betriebsmodus<select id="mode"><option value="allowlist">Allowlist · nur freigegebene Ziele</option><option value="admin">Admin · alle erreichbaren TCP-/UDP-Ziele</option></select></label><div class="checks"><label><input id="ping" type="checkbox"> ICMP-Ping erlauben</label><label><input id="scan" type="checkbox"> TCP-Portscan erlauben</label></div><p id="modeHint">Eine leere Allowlist sperrt alle Ziele. Ping und Scan benötigen zusätzlich passende Zielregeln. OpenClaw verwaltet die Rechte der einzelnen Agenten.</p><div class="rules"><table><thead><tr><th>IPv4 / CIDR</th><th>Protokoll</th><th>Port von</th><th>bis</th><th>MAC optional</th><th></th></tr></thead><tbody id="rules"></tbody></table></div><div class="actions"><button id="addRule" class="secondary" type="button">Regel hinzufügen</button></div><small>ICMP verwendet Port 0. MAC-Pins gelten nur für einzelne Ziele (/32) im lokalen WLAN-Netz und setzen eine passende ARP-Zuordnung voraus.</small></section>
+<button id="save" type="submit">Speichern und neu starten</button>
+</form>
+<section class="card"><h2>Web-Passwort ändern</h2><form id="passwordForm"><div class="grid"><label>Aktuelles Passwort<input id="currentPassword" required type="password" autocomplete="current-password" maxlength="72"></label><label>Neues Passwort<input id="newPassword" required type="password" autocomplete="new-password" minlength="10" maxlength="72"><small>10–72 druckbare ASCII-Zeichen. Der Benutzername bleibt admin.</small></label></div><button type="submit" class="secondary">Passwort ändern</button></form></section>
+<section class="card"><h2>Werkseinstellungen</h2><p>Löscht WLAN, Freigaben, Passwörter, OpenClaw-Kopplung und den privaten Geräteschlüssel. Danach entsteht eine neue Geräteidentität. Die Firmware bleibt installiert.</p><form id="resetForm"><div class="grid"><label>Zur Bestätigung RESET eingeben<input id="resetConfirmation" required pattern="RESET" autocomplete="off"></label><label>Aktuelles Web-Passwort<input id="resetPassword" required type="password" autocomplete="current-password" maxlength="72"></label></div><button class="danger" type="submit">Gerät vollständig zurücksetzen</button></form></section>
+<footer>Die lokale Verwaltung verwendet HTTP mit Passwortschutz. Verwende sie in deinem vertrauenswürdigen LAN oder im geschützten Setup-Hotspot. Der OpenClaw-Zugang verwendet TLS.</footer>
+<script>
+let csrf='';
+const $=id=>document.getElementById(id);
+const notice=text=>{$('notice').textContent=text;$('notice').hidden=false;};
+function addRule(value={cidr:'',protocol:'tcp',first:1,last:1,mac:''}){
+  if($('rules').children.length>=32)return notice('Maximal 32 Regeln.');
+  const row=document.createElement('tr');
+  for(const name of ['cidr','protocol','first','last','mac']){
+    const cell=document.createElement('td');let input;
+    if(name==='protocol'){input=document.createElement('select');for(const p of ['tcp','udp','icmp']){const o=document.createElement('option');o.value=p;o.textContent=p.toUpperCase();input.append(o);}}
+    else{input=document.createElement('input');input.type=['first','last'].includes(name)?'number':'text';if(input.type==='number'){input.min=0;input.max=65535;input.required=true;}else{input.maxLength=name==='cidr'?18:17;input.required=name==='cidr';}}
+    input.dataset.field=name;input.value=value[name];input.setAttribute('aria-label',name);cell.append(input);row.append(cell);
+  }
+  row.querySelector('select').addEventListener('change',event=>{if(event.target.value==='icmp')for(const n of ['first','last'])row.querySelector(`[data-field=${n}]`).value=0;});
+  const cell=document.createElement('td'),remove=document.createElement('button');remove.type='button';remove.className='secondary';remove.textContent='×';remove.setAttribute('aria-label','Regel entfernen');remove.onclick=()=>row.remove();cell.append(remove);row.append(cell);$('rules').append(row);
+}
+async function post(path,value){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(value)});const text=await response.text();if(!response.ok)throw Error(text);notice(text);}
+async function load(){
+  const response=await fetch('/api/status');if(!response.ok)throw Error('Anmeldung fehlgeschlagen. Seite neu laden.');const data=await response.json();csrf=data.csrf;
+  for(const name of ['ssid','context','gateway','ca','mode'])$(name).value=data[name];for(const name of ['scan','ping'])$(name).checked=data[name];
+  $('rules').replaceChildren();data.rules.forEach(addRule);
+  $('wifiState').textContent=data.online?'WLAN verbunden':'Setup / WLAN getrennt';$('wifiState').classList.toggle('good',data.online);
+  $('gatewayState').textContent=data.gatewayReady?'OpenClaw verbunden':data.authBlocked?'Kopplung / Zugang prüfen':data.enrollmentPending?'Kopplung ausstehend':'OpenClaw nicht verbunden';$('gatewayState').classList.toggle('good',data.gatewayReady);
+  $('address').textContent=data.online?data.ip:'192.168.4.1';
+  $('clockCard').hidden=data.clockReady;
+}
+$('addRule').onclick=()=>addRule();
+$('setClock').onclick=async()=>{try{await post('/api/time',{seconds:Math.floor(Date.now()/1000)});$('clockCard').hidden=true;}catch(error){notice(error.message);}};
+$('settingsForm').onsubmit=async event=>{event.preventDefault();$('save').disabled=true;try{
+  const value={};for(const name of ['ssid','wifiPassword','context','gateway','setupCode','ca','mode'])value[name]=$(name).value;
+  for(const name of ['scan','ping','clearWifiPassword'])value[name]=$(name).checked;
+  value.rules=Array.from($('rules').children,row=>{const rule={};for(const input of row.querySelectorAll('[data-field]'))rule[input.dataset.field]=input.type==='number'?Number(input.value):input.value;return rule;});
+  await post('/api/settings',value);$('wifiPassword').value='';$('setupCode').value='';
+}catch(error){notice(error.message);$('save').disabled=false;}};
+$('passwordForm').onsubmit=async event=>{event.preventDefault();try{await post('/api/password',{current:$('currentPassword').value,password:$('newPassword').value});$('passwordForm').reset();}catch(error){notice(error.message);}};
+$('resetForm').onsubmit=async event=>{event.preventDefault();try{await post('/api/reset',{confirmation:$('resetConfirmation').value,password:$('resetPassword').value});$('resetForm').reset();}catch(error){notice(error.message);}};
+load().catch(error=>notice(error.message));
+</script>
+</body></html>

@@ -89,6 +89,10 @@ static esp_err_t status(httpd_req_t *req) {
     cJSON_AddBoolToObject(json.get(), "enrollmentPending", !enrollment_code().empty());
     esp_netif_ip_info_t info{};
     auto *iface = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_dns_info_t dns{};
+    if (iface && esp_netif_get_dns_info(iface, ESP_NETIF_DNS_MAIN, &dns) == ESP_OK &&
+        dns.ip.type == ESP_IPADDR_TYPE_V4)
+        cJSON_AddStringToObject(json.get(), "activeDns", ip_text(ntohl(dns.ip.u_addr.ip4.addr)).c_str());
     if (iface && esp_netif_get_ip_info(iface, &info) == ESP_OK)
         cJSON_AddStringToObject(json.get(), "ip", ip_text(ntohl(info.ip.addr)).c_str());
     char *raw = cJSON_PrintUnformatted(json.get());

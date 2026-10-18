@@ -20,7 +20,7 @@ struct Rule {
     std::string mac;
 };
 struct Settings {
-    std::string ssid, wifi_password;
+    std::string ssid, wifi_password, dns;
     std::string context = "node1";
     std::string gateway, ca;
     bool admin = false;

@@ -13,6 +13,7 @@
 #include "esp_sntp.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "lwip/inet.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -26,8 +27,22 @@ static std::atomic<bool> connecting{false};
 static std::atomic<bool> lost_link{false};
 static std::atomic<int64_t> retry_at{0};
 static int64_t milliseconds() { return esp_timer_get_time() / 1000; }
-static void wifi_event(void *, esp_event_base_t base, int32_t id, void *) {
-    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) online = true;
+static void apply_dns(esp_netif_t *station) {
+    if (settings.dns.empty()) return;
+    uint32_t address;
+    ESP_ERROR_CHECK(ipv4(settings.dns, address) ? ESP_OK : ESP_ERR_INVALID_STATE);
+    esp_netif_dns_info_t dns{};
+    dns.ip.type = ESP_IPADDR_TYPE_V4;
+    dns.ip.u_addr.ip4.addr = htonl(address);
+    // All resolver slots use the selected server, including the SDK fallback.
+    for (int slot = ESP_NETIF_DNS_MAIN; slot < ESP_NETIF_DNS_MAX; ++slot)
+        ESP_ERROR_CHECK(esp_netif_set_dns_info(station, static_cast<esp_netif_dns_type_t>(slot), &dns));
+}
+static void wifi_event(void *, esp_event_base_t base, int32_t id, void *data) {
+    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        apply_dns(static_cast<ip_event_got_ip_t *>(data)->esp_netif);
+        online = true;
+    }
     else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         online = false; gateway_ready = false; network_invalidate();
         lost_link = true;
@@ -95,6 +110,9 @@ static void try_connect() {
         stopping || milliseconds() < retry_at || std::time(nullptr) < 1704067200) return;
     xSemaphoreTake(gateway_mutex, portMAX_DELAY);
     if (stopping || !node) { xSemaphoreGive(gateway_mutex); return; }
+    // DHCP can refresh DNS without changing the station IP. Reapply before
+    // each explicit native connection request as well as on IP acquisition.
+    apply_dns(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"));
     std::string code = enrollment_code();
     esp_openclaw_node_connect_request_t request{};
     char *saved_uri = esp_openclaw_node_dup_gateway_uri(node);

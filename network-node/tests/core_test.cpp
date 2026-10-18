@@ -24,6 +24,27 @@ int main() {
     defaults.wifi_password = "example-password";
     assert(parse_settings(json, defaults, config, error));
     assert(config.wifi_password == defaults.wifi_password);
+    assert(config.dns.empty()); // Existing NVS objects remain readable.
+    cJSON_AddStringToObject(json, "dns", "192.0.2.53");
+    assert(parse_settings(json, defaults, config, error));
+    assert(config.dns == "192.0.2.53");
+    cJSON *persisted = settings_json(config, true);
+    Settings restored;
+    assert(parse_settings(persisted, Settings{}, restored, error));
+    assert(restored.dns == config.dns && restored.wifi_password == defaults.wifi_password);
+    cJSON_Delete(persisted);
+    cJSON_DeleteItemFromObjectCaseSensitive(json, "dns");
+    assert(parse_settings(json, config, restored, error) && restored.dns == config.dns);
+    cJSON_AddStringToObject(json, "dns", "");
+    assert(parse_settings(json, config, restored, error) && restored.dns.empty());
+    for (const char *invalid : {"0.0.0.0", "127.0.0.1", "169.254.1.1", "224.0.0.1",
+             "255.255.255.255", "192.000.2.53", "192.0.2.53:53", "resolver.example.org"}) {
+        cJSON_ReplaceItemInObjectCaseSensitive(json, "dns", cJSON_CreateString(invalid));
+        assert(!parse_settings(json, defaults, restored, error));
+    }
+    cJSON_ReplaceItemInObjectCaseSensitive(json, "dns", cJSON_CreateNull());
+    assert(!parse_settings(json, defaults, restored, error));
+    cJSON_DeleteItemFromObjectCaseSensitive(json, "dns");
     assert(allows(config, address, Protocol::tcp, 443));
     assert(!allows(config, address, Protocol::tcp, 80));
     assert(!allows(config, address, Protocol::udp, 443));

@@ -124,6 +124,13 @@ bool parse_settings(const cJSON *json, const Settings &previous, Settings &out, 
     if (clear && !cJSON_IsBool(clear)) return fail("Invalid clearWifiPassword");
     if (cJSON_IsTrue(clear)) out.wifi_password.clear();
     if (!out.wifi_password.empty() && out.wifi_password.size() < 8) return fail("Wi-Fi password needs 8-63 characters");
+    // Older stored settings and clients omit DNS; blank restores DHCP defaults.
+    if (item(json, "dns")) {
+        uint32_t address;
+        if (!string_field(json, "dns", 15, out.dns) || (!out.dns.empty() &&
+            (!ipv4(out.dns, address) || !valid_target(address, Protocol::tcp))))
+            return fail("DNS server must be a canonical unicast IPv4 address or blank");
+    }
     auto ca = item(json, "ca");
     if (ca) {
         if (!cJSON_IsString(ca) || !ca->valuestring) return fail("Invalid CA certificate");
@@ -184,6 +191,7 @@ bool parse_settings(const cJSON *json, const Settings &previous, Settings &out, 
 cJSON *settings_json(const Settings &settings, bool secrets) {
     cJSON *json = cJSON_CreateObject();
     cJSON_AddStringToObject(json, "ssid", settings.ssid.c_str());
+    cJSON_AddStringToObject(json, "dns", settings.dns.c_str());
     cJSON_AddStringToObject(json, "context", settings.context.c_str());
     cJSON_AddStringToObject(json, "gateway", settings.gateway.c_str());
     cJSON_AddStringToObject(json, "ca", settings.ca.c_str());

@@ -32,6 +32,9 @@ shared. A C3 SuperMini is a future target, not a qualified profile yet.
 - Wi-Fi, context ID, Gateway URL/setup code, CA, allowlist/admin mode, separate
   ping/scan switches, password change, browser time synchronization and factory
   reset. Configuration changes save to NVS and reboot.
+- Optional device-local IPv4 DNS server. Blank uses the WLAN's DHCP DNS;
+  a configured server fills all resolver slots on IP acquisition and before
+  Gateway connection requests. DHCP still owns the station IP and route.
 - Four simultaneous transport handles, 2048-byte TCP chunks, 1200-byte UDP
   datagrams, idle/absolute expiry and session-bound handles.
 - At most one asynchronous probe job with 32 explicit targets. No shell,
@@ -89,6 +92,10 @@ Gateway as part of a build check.
    base64url setup code. The URL inside the code must match exactly. Use a
    public certificate or paste the CA that signed the Gateway's certificate.
    Do not disable certificate checks to connect a private Gateway.
+   If your LAN uses split DNS, enter its resolver in the optional **DNS-Server**
+   field. Keep the Gateway hostname matching its certificate. The setting
+   affects only this node and is preserved across reboots; blank restores
+   automatic DNS after saving. Status exposes the currently active main DNS.
 4. Pick a context such as `node1`. Leave **allowlist** selected and add only the
    desired targets, transports and ports. An empty allowlist denies all targets.
    Ping needs the separate ping switch and an ICMP rule (port 0); a scan needs

@@ -1,0 +1,74 @@
+{
+  "units": "mm",
+  "estimated_from_photos": true,
+  "revision": "lid-v0.3",
+  "lid_print_orientation": "raised_outer_face_down",
+  "lid_local_support_region": "recessed_latch_well",
+  "parameters_sha256": "410f6b0dae17d328bdca93223179e0fe5c7ef0c3840ce39a9c6e170979ac95ac",
+  "assembled_size_mm": [
+    34.0,
+    58.0,
+    20.2
+  ],
+  "checks": {
+    "case_lid_intersection_mm3": 0.0,
+    "case_reference_intersection_mm3": 1.8735013540549517e-16,
+    "lid_reference_intersection_mm3": 0.0,
+    "slide_without_elastic_tooth_max_collision_mm3": 0.0,
+    "sliding_lid_reference_max_collision_mm3": 0.0,
+    "slide_sample_count": 65,
+    "lid_outside_case_silhouette_mm3": 0.0,
+    "lid_outside_case_at_stop_limits_mm3": 6.990069834870835e-10,
+    "front_stop_clearance_mm": 0.2,
+    "front_stop_blocks_overtravel": true,
+    "rear_latch_clearance_mm": 0.14999999999999858,
+    "rear_latch_blocks_withdrawal": true,
+    "usb_roof_clearance_mm": 1.5000000000000009,
+    "crown_raise_mm": 1.2,
+    "crown_rim_clearance_mm": 0.2,
+    "raised_material_above_flexible_tongue_mm3": 0.0,
+    "pin_tip_floor_clearance_mm": 0.7999999999999998,
+    "module_roof_clearance_mm": 0.7000000000000002,
+    "latch_required_deflection_mm": 0.5300000000000011,
+    "physical_fit_verified": false
+  },
+  "parts": {
+    "case": {
+      "size_mm": [
+        34.0,
+        58.0,
+        19.0
+      ],
+      "volume_mm3": 9771.844,
+      "triangles": 7072,
+      "closed_connected_mesh": true,
+      "sha256": "e96205394fe6171e27f1053b33a3eba5530040ab6c6e0edaefb575a86f0c04ed"
+    },
+    "lid": {
+      "size_mm": [
+        33.6,
+        57.6,
+        4.2
+      ],
+      "volume_mm3": 4654.905,
+      "triangles": 3542,
+      "closed_connected_mesh": true,
+      "sha256": "ceda7978681355d8b4331d189859d66b6c5d532604cc127f4f8b95666e71855f"
+    },
+    "pin-fit-test": {
+      "size_mm": [
+        34.0,
+        9.0,
+        9.0
+      ],
+      "volume_mm3": 951.684,
+      "triangles": 1388,
+      "closed_connected_mesh": true,
+      "sha256": "177a8ecc84dcec40bc93221de5dc8d35a2a679fe84ce3224d72adc6b42b0c07e"
+    }
+  },
+  "fit_status": {
+    "case_matches_user_confirmed_v01": true,
+    "lid_physical_fit_verified": false
+  }
+}

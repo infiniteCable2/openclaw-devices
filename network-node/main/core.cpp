@@ -105,6 +105,47 @@ static bool boolean(const cJSON *json, const char *name, bool &out) {
     out = cJSON_IsTrue(value);
     return true;
 }
+bool valid_ssid(const std::string &text) {
+    if (text.empty() || text.size() > 32) return false;
+    for (size_t i = 0; i < text.size();) {
+        unsigned char c = text[i++];
+        if (c < 32 || c == 127) return false;
+        if (c < 128) continue;
+        unsigned need, code, minimum;
+        if (c >= 0xc2 && c <= 0xdf) { need = 1; code = c & 31; minimum = 0x80; }
+        else if (c >= 0xe0 && c <= 0xef) { need = 2; code = c & 15; minimum = 0x800; }
+        else if (c >= 0xf0 && c <= 0xf4) { need = 3; code = c & 7; minimum = 0x10000; }
+        else return false;
+        if (i + need > text.size()) return false;
+        while (need--) { c = text[i++]; if ((c & 0xc0) != 0x80) return false; code = (code << 6) | (c & 63); }
+        if (code < minimum || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return false;
+    }
+    return true;
+}
+static const WifiProfile *find_wifi(const std::vector<WifiProfile> &profiles, const std::string &ssid) {
+    for (const auto &profile : profiles) if (profile.ssid == ssid) return &profile;
+    return nullptr;
+}
+static bool wifi_fields(const cJSON *json, WifiProfile &profile, std::string &error) {
+    auto fail = [&error](const char *message) { error = message; return false; };
+    if (item(json, "wifiPassword")) {
+        std::string value;
+        if (!string_field(json, "wifiPassword", 63, value)) return fail("Invalid Wi-Fi password");
+        if (!value.empty()) profile.password = value;
+    }
+    auto clear = item(json, "clearWifiPassword");
+    if (clear && !cJSON_IsBool(clear)) return fail("Invalid clearWifiPassword");
+    if (cJSON_IsTrue(clear)) profile.password.clear();
+    if (!profile.password.empty() && profile.password.size() < 8) return fail("Wi-Fi password needs 8-63 bytes");
+    if (item(json, "dns")) {
+        uint32_t address;
+        if (!string_field(json, "dns", 15, profile.dns) || (!profile.dns.empty() &&
+            (!ipv4(profile.dns, address) || !valid_target(address, Protocol::tcp))))
+            return fail("DNS server must be a canonical unicast IPv4 address or blank");
+    }
+    if (item(json, "hidden") && !boolean(json, "hidden", profile.hidden)) return fail("Invalid hidden SSID flag");
+    return true;
+}
 bool parse_settings(const cJSON *json, const Settings &previous, Settings &out, std::string &error) {
     auto fail = [&error](const char *message) { error = message; return false; };
     if (!cJSON_IsObject(json)) return fail("Expected settings object");
@@ -113,23 +154,46 @@ bool parse_settings(const cJSON *json, const Settings &previous, Settings &out, 
         !string_field(json, "context", 48, out.context) || !identifier(out.context) ||
         !string_field(json, "gateway", 256, out.gateway) || (!out.gateway.empty() && !wss_url(out.gateway)))
         return fail("Invalid Wi-Fi, context ID or wss:// Gateway URL");
-    auto password = item(json, "wifiPassword");
-    if (password) {
-        std::string value;
-        if (!string_field(json, "wifiPassword", 63, value)) return fail("Invalid Wi-Fi password");
-        // Blank preserves the credential unless clearWifiPassword is explicit.
-        if (!value.empty()) out.wifi_password = value;
+    std::vector<WifiProfile> prior = previous.wifi_networks;
+    if (prior.empty() && !previous.ssid.empty())
+        prior.push_back({previous.ssid, previous.wifi_password, previous.dns, false});
+    auto networks = item(json, "wifiNetworks");
+    if (networks) {
+        if (!cJSON_IsArray(networks) || cJSON_GetArraySize(networks) > int(max_wifi_networks))
+            return fail("At most 8 saved Wi-Fi networks");
+        out.wifi_networks.clear();
+        const cJSON *row;
+        cJSON_ArrayForEach(row, networks) {
+            WifiProfile profile;
+            if (!string_field(row, "ssid", 32, profile.ssid) || !valid_ssid(profile.ssid)) return fail("Invalid saved SSID");
+            if (find_wifi(out.wifi_networks, profile.ssid)) return fail("Duplicate saved SSID");
+            if (auto saved = find_wifi(prior, profile.ssid)) profile = *saved;
+            if (!wifi_fields(row, profile, error)) return false;
+            out.wifi_networks.push_back(profile);
+        }
+        if (out.ssid.empty() && !out.wifi_networks.empty()) out.ssid = out.wifi_networks.front().ssid;
+        if (!out.ssid.empty() && !find_wifi(out.wifi_networks, out.ssid)) return fail("Preferred SSID must be saved");
+    } else {
+        // Migrate the original single-network NVS object and accept old clients.
+        out.wifi_networks = prior;
+        if (out.ssid.empty()) out.wifi_networks.clear();
+        else {
+            if (!valid_ssid(out.ssid)) return fail("Invalid SSID");
+            WifiProfile profile{out.ssid, "", "", false};
+            if (auto saved = find_wifi(prior, out.ssid)) profile = *saved;
+            // A blank password never copies another SSID's credential or DNS.
+            if (!wifi_fields(json, profile, error)) return false;
+            bool replaced = false;
+            for (auto &saved : out.wifi_networks) if (saved.ssid == profile.ssid) { saved = profile; replaced = true; break; }
+            if (!replaced) {
+                if (out.wifi_networks.size() >= max_wifi_networks) return fail("At most 8 saved Wi-Fi networks");
+                out.wifi_networks.push_back(profile);
+            }
+        }
     }
-    auto clear = item(json, "clearWifiPassword");
-    if (clear && !cJSON_IsBool(clear)) return fail("Invalid clearWifiPassword");
-    if (cJSON_IsTrue(clear)) out.wifi_password.clear();
-    if (!out.wifi_password.empty() && out.wifi_password.size() < 8) return fail("Wi-Fi password needs 8-63 characters");
-    // Older stored settings and clients omit DNS; blank restores DHCP defaults.
-    if (item(json, "dns")) {
-        uint32_t address;
-        if (!string_field(json, "dns", 15, out.dns) || (!out.dns.empty() &&
-            (!ipv4(out.dns, address) || !valid_target(address, Protocol::tcp))))
-            return fail("DNS server must be a canonical unicast IPv4 address or blank");
+    out.wifi_password.clear(); out.dns.clear();
+    if (auto preferred = find_wifi(out.wifi_networks, out.ssid)) {
+        out.wifi_password = preferred->password; out.dns = preferred->dns;
     }
     auto ca = item(json, "ca");
     if (ca) {
@@ -200,6 +264,16 @@ cJSON *settings_json(const Settings &settings, bool secrets) {
     cJSON_AddBoolToObject(json, "ping", settings.ping);
     cJSON_AddBoolToObject(json, "wifiPasswordSet", !settings.wifi_password.empty());
     if (secrets) cJSON_AddStringToObject(json, "wifiPassword", settings.wifi_password.c_str());
+    cJSON *networks = cJSON_AddArrayToObject(json, "wifiNetworks");
+    for (const auto &profile : settings.wifi_networks) {
+        cJSON *row = cJSON_CreateObject();
+        cJSON_AddStringToObject(row, "ssid", profile.ssid.c_str());
+        cJSON_AddStringToObject(row, "dns", profile.dns.c_str());
+        cJSON_AddBoolToObject(row, "hidden", profile.hidden);
+        cJSON_AddBoolToObject(row, "wifiPasswordSet", !profile.password.empty());
+        if (secrets) cJSON_AddStringToObject(row, "wifiPassword", profile.password.c_str());
+        cJSON_AddItemToArray(networks, row);
+    }
     cJSON *rules = cJSON_AddArrayToObject(json, "rules");
     for (const auto &rule : settings.rules) {
         cJSON *row = cJSON_CreateObject();

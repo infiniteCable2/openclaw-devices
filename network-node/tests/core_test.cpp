@@ -21,6 +21,7 @@ int main() {
     const char *raw = R"({"ssid":"Example WiFi","context":"node1","gateway":"wss://gateway.example.org","mode":"allowlist","ping":true,"scan":true,"rules":[{"cidr":"192.0.2.0/24","protocol":"tcp","first":443,"last":443},{"cidr":"192.0.2.10","protocol":"icmp","first":0,"last":0},{"cidr":"192.0.2.11","protocol":"udp","first":9,"last":9,"mac":"02:00:00:00:00:11"}]})";
     cJSON *json = cJSON_Parse(raw);
     Settings config; std::string error;
+    defaults.ssid = "Example WiFi";
     defaults.wifi_password = "example-password";
     assert(parse_settings(json, defaults, config, error));
     assert(config.wifi_password == defaults.wifi_password);

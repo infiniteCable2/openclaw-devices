@@ -5,8 +5,9 @@ target devices, protocol interpretation, agent authorization and scan planning
 stay on the OpenClaw host. This firmware opens TCP/UDP sockets and performs
 bounded ICMP ping and TCP connect probes in the node's network.
 
-Latest [sticker/USB software verification](docs/verification-sticker-usb.md)
-records the checks and remaining hardware acceptance for this revision.
+Latest [WLAN software verification](docs/verification-wifi.md) records the
+checks and remaining hardware acceptance for this revision. Earlier
+[sticker/USB verification](docs/verification-sticker-usb.md) covers provisioning.
 
 [Setup page preview](docs/portal-preview.jpg) uses synthetic data from a local
 browser fixture; it is not a screenshot of a deployed device.
@@ -27,12 +28,17 @@ shared. A C3 SuperMini is a future target, not a qualified profile yet.
   alone does not open the hotspot. Station reconnects continue during setup.
 - Password-protected, self-contained HTTP setup page on the AP and station LAN.
   No CDN, cloud provisioning service or external JavaScript.
+- Asynchronous WLAN discovery/selection, manual hidden SSIDs and up to eight
+  saved networks with individual removal. A preferred network is tried first;
+  offline connection attempts rotate through the remaining profiles about every
+  15 seconds. A working fallback connection stays active until lost or rebooted.
+  Profiles survive reboot and are erased by factory reset.
 - Per-device sticker credentials in a separate NVS partition, preserved by
   application factory reset, and an on-demand USB-UART reader with a small GUI.
 - Wi-Fi, context ID, Gateway URL/setup code, CA, allowlist/admin mode, separate
   ping/scan switches, password change, browser time synchronization and factory
   reset. Configuration changes save to NVS and reboot.
-- Optional device-local IPv4 DNS server. Blank uses the WLAN's DHCP DNS;
+- Optional IPv4 DNS server per saved WLAN. Blank uses that WLAN's DHCP DNS;
   a configured server fills all resolver slots on IP acquisition and before
   Gateway connection requests. DHCP still owns the station IP and route.
 - Four simultaneous transport handles, 2048-byte TCP chunks, 1200-byte UDP
@@ -73,8 +79,10 @@ idf.py -B build/esp32s3-16mb -DNETWORK_NODE_BOARD=esp32s3-16mb build
 On Windows, keep physical tool/package-cache paths short: some ESP-IDF archive
 filenames can exceed the Windows path limit under a deeply nested workspace.
 
-The firmware includes its HTML directly and has no filesystem image. Build
-artifacts and managed-component downloads are not source. Each board's
+The firmware includes its HTML directly and has no filesystem image. Its
+dependencies use ESP-IDF `EMBED_TXTFILES` and PlatformIO's matching
+`board_build.embed_txtfiles`, so HTML edits also rebuild incremental images.
+Build artifacts and managed-component downloads are not source. Each board's
 `dependencies.lock` records resolved component versions/hashes for its target.
 Do not build different targets concurrently in the same checkout, as ESP-IDF's
 managed-component directory is shared. Do not flash or contact an existing
@@ -88,13 +96,22 @@ Gateway as part of a build check.
 2. Join `OpenClaw-Setup-<device suffix>` with that password, then open
    **http://192.168.4.1**. Sign in as **admin** using the same initial password.
    This is a setup AP, not a DNS-hijacking captive portal.
-3. Enter the Wi-Fi SSID/password. Supply a `wss://` Gateway URL and its native
+3. Choose **WLANs suchen** or enter an SSID manually, including hidden networks.
+   Enter its password (or explicitly select an open WLAN), optionally mark it
+   preferred, then choose **WLAN übernehmen**. Repeat for other networks.
+   **Bearbeiten** changes one profile; **Entfernen** stages its deletion.
+   These changes reach the device only with **Speichern und neu starten**;
+   a pending WLAN edit is also included by that button. Removing the last
+   profile leaves the setup hotspot available after reboot. Discovery shows up
+   to 32 records, groups matching SSIDs by strongest signal and is rate-limited
+   to one search per 15 seconds. Enterprise/WEP WLANs are not supported.
+   Supply a `wss://` Gateway URL and its native
    base64url setup code. The URL inside the code must match exactly. Use a
    public certificate or paste the CA that signed the Gateway's certificate.
    Do not disable certificate checks to connect a private Gateway.
    If your LAN uses split DNS, enter its resolver in the optional **DNS-Server**
    field. Keep the Gateway hostname matching its certificate. The setting
-   affects only this node and is preserved across reboots; blank restores
+   belongs to the selected WLAN profile and is preserved across reboots; blank restores
    automatic DNS after saving. Status exposes the currently active main DNS.
 4. Pick a context such as `node1`. Leave **allowlist** selected and add only the
    desired targets, transports and ports. An empty allowlist denies all targets.
@@ -107,6 +124,24 @@ Gateway as part of a build check.
    On a later Wi-Fi outage, the same AP password is used. Blank Wi-Fi passwords
    preserve the existing credential unless **open Wi-Fi / clear password** is
    explicitly selected.
+
+Status refreshes every 15 seconds without replacing unsaved form inputs and
+shows the connected SSID/signal/IP, which can differ from the preferred WLAN.
+WLAN passwords are never returned by the HTTP status/search endpoints. Blank
+password updates preserve only that same SSID's existing secret. A new SSID
+never inherits credentials or DNS from another network.
+
+Stored pre-profile settings migrate on first boot without changing the native
+identity or Gateway enrollment. The preferred WLAN is also serialized in the
+old single-network fields so the previous firmware can still reconnect after a
+code-only rollback; saving with older firmware can discard the extra profiles.
+For HTTP clients, `wifiNetworks` is the complete authoritative profile list;
+omitting it retains the legacy single-network update behavior. Each profile
+accepts `ssid`, optional `wifiPassword` (blank preserves), `clearWifiPassword`,
+`dns` and `hidden`; top-level `ssid` selects the preferred saved profile.
+POST `/api/wifi/scan` with `{}` starts a bounded asynchronous search; GET on
+the same path returns `busy`, `error` and `networks`. Both require web login,
+and POST retains the same CSRF/origin checks as other mutations.
 
 Certificate validation needs a sensible device clock. The firmware uses SNTP
 (`pool.ntp.org`). For an isolated LAN, set the clock from the authenticated web
@@ -194,12 +229,22 @@ injection surface.
 
 ```sh
 node --test tests/transport.test.mjs
-# Portable C++ policy/configuration test, using the managed cJSON source:
-c++ -std=c++17 -Wall -Wextra -Werror -DCJSON_NESTING_LIMIT=16 -DCJSON_CIRCULAR_LIMIT=16 -I main \
+# Also requires Playwright and its browser (or PORTAL_BROWSER_PATH):
+node --test tests/portal.test.cjs
+# Use an existing temporary directory; compile cJSON as C for Zig/Clang too.
+cc -DCJSON_NESTING_LIMIT=16 -DCJSON_CIRCULAR_LIMIT=16 \
+  -c managed_components/espressif__cjson/cJSON/cJSON.c -o <temp>/cjson.o
+c++ -std=c++17 -Wall -Wextra -Werror -I main \
   -I managed_components/espressif__cjson/cJSON \
-  main/core.cpp tests/core_test.cpp managed_components/espressif__cjson/cJSON/cJSON.c \
-  -o <temporary-test-path>
-<temporary-test-path>
+  main/core.cpp tests/core_test.cpp <temp>/cjson.o -o <temp>/core-test
+<temp>/core-test
+# Repeat that compile/run with tests/wifi_profiles_test.cpp instead.
+c++ -std=c++17 -Wall -Wextra -Werror -I tests/fakes -I main \
+  -I managed_components/espressif__cjson/cJSON \
+  main/core.cpp main/wifi.cpp tests/wifi_manager_test.cpp <temp>/cjson.o \
+  -o <temp>/wifi-manager-test
+<temp>/wifi-manager-test
+<temp>/wifi-manager-test --empty
 ```
 
 Software results are recorded in [board-profile verification](docs/verification-boards.md)

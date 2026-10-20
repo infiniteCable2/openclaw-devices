@@ -93,6 +93,8 @@ static bool store_config(const Settings &next, const std::string &setup_code) {
     char *raw = cJSON_PrintUnformatted(json);
     cJSON_Delete(json);
     if (!raw) return false;
+    // Never persist an object the bounded boot reader cannot load.
+    if (std::strlen(raw) > max_body) { free(raw); return false; }
     nvs_handle_t handle;
     if (nvs_open("netnode", NVS_READWRITE, &handle) != ESP_OK) { free(raw); return false; }
     esp_err_t status = nvs_set_str(handle, "config", raw);

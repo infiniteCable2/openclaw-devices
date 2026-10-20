@@ -10,6 +10,7 @@ constexpr size_t max_chunk = 2048;
 constexpr size_t max_datagram = 1200;
 constexpr size_t max_streams = 4;
 constexpr size_t max_scan_targets = 32;
+constexpr size_t max_wifi_networks = 8;
 
 enum class Protocol { tcp, udp, icmp };
 struct Rule {
@@ -19,8 +20,14 @@ struct Rule {
     uint16_t first = 1, last = 65535;
     std::string mac;
 };
+struct WifiProfile {
+    std::string ssid, password, dns;
+    bool hidden = false;
+};
 struct Settings {
+    // Preferred profile projection retained for older local clients/firmware.
     std::string ssid, wifi_password, dns;
+    std::vector<WifiProfile> wifi_networks;
     std::string context = "node1";
     std::string gateway, ca;
     bool admin = false;
@@ -40,4 +47,5 @@ bool valid_target(uint32_t address, Protocol protocol);
 const char *protocol_name(Protocol protocol);
 bool integer(const cJSON *object, const char *name, int minimum, int maximum, int &out);
 bool string_field(const cJSON *object, const char *name, size_t maximum, std::string &out);
+bool valid_ssid(const std::string &text);
 }

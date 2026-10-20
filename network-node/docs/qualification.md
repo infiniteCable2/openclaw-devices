@@ -18,6 +18,16 @@ tokens or network payloads.
   out: the node must explicitly replace the Gateway connection and recover.
   failed OpenClaw auth alone does not open it. Test saving a corrected Wi-Fi
   configuration from the recovery AP.
+- WLAN profiles: migrate an existing single-network configuration without
+  losing pairing; add/select a discovered 2.4-GHz SSID and a manually entered
+  hidden SSID. Save/reboot, change preferred network, remove one and then the
+  last profile. Test unavailable/wrong-password preferred WLAN with a working
+  fallback, and custom DNS followed by DHCP DNS in another WLAN. Search while
+  connected and while recovering on the AP; confirm bounded completion/error,
+  WebSocket recovery, per-SSID password isolation and unchanged unsaved edits.
+  Verify a separately authorized factory reset erases every saved WLAN while
+  retaining the sticker password. Do not reset a paired working device merely
+  to qualify a code change without first authorizing that destructive phase.
 - Credentials: web password change invalidates old Basic credentials and old
   CSRF; AP password remains valid. Confirm blank password preservation and
   explicit open-Wi-Fi selection.

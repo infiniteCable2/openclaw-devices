@@ -1,5 +1,5 @@
 #include "settings.hpp"
-#include "portal.hpp"
+#include "wifi.hpp"
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -13,6 +13,8 @@
 #include "sodium.h"
 
 namespace netnode {
+extern const char portal_html[] asm("_binary_portal_html_start");
+extern const char portal_html_end[] asm("_binary_portal_html_end");
 using Json = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
 static std::string csrf;
 static unsigned failures = 0;
@@ -75,7 +77,7 @@ static Json body(httpd_req_t *req) {
 static esp_err_t portal(httpd_req_t *req) {
     if (!authenticated(req)) return ESP_OK;
     headers(req); httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, portal_html, sizeof(portal_html) - 1);
+    return httpd_resp_send(req, portal_html, portal_html_end - portal_html - 1);
 }
 static esp_err_t status(httpd_req_t *req) {
     if (!authenticated(req)) return ESP_OK;
@@ -87,6 +89,7 @@ static esp_err_t status(httpd_req_t *req) {
     cJSON_AddBoolToObject(json.get(), "setupAp", setup_ap);
     cJSON_AddBoolToObject(json.get(), "clockReady", std::time(nullptr) >= 1704067200);
     cJSON_AddBoolToObject(json.get(), "enrollmentPending", !enrollment_code().empty());
+    wifi_status(json.get());
     esp_netif_ip_info_t info{};
     auto *iface = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_dns_info_t dns{};
@@ -168,15 +171,32 @@ static esp_err_t clock_set(httpd_req_t *req) {
     if (settimeofday(&clock, nullptr)) return message(req, "503 Service Unavailable", "Clock could not be set");
     return message(req, "200 OK", "Device clock set from browser. OpenClaw can now validate certificate dates.");
 }
+static esp_err_t wifi_search(httpd_req_t *req) {
+    if (req->method == HTTP_POST) {
+        if (!mutation_allowed(req)) return ESP_OK;
+        Json json = body(req);
+        if (!cJSON_IsObject(json.get())) return message(req, "400 Bad Request", "Expected JSON object");
+        std::string error;
+        if (!wifi_scan_request(error)) return message(req, "429 Too Many Requests", error.c_str());
+        return message(req, "202 Accepted", "WLAN search started");
+    }
+    if (!authenticated(req)) return ESP_OK;
+    Json json(wifi_scan_status(), cJSON_Delete);
+    char *raw = cJSON_PrintUnformatted(json.get());
+    if (!raw) return message(req, "503 Service Unavailable", "Not enough memory");
+    headers(req); httpd_resp_set_type(req, "application/json");
+    esp_err_t result = httpd_resp_sendstr(req, raw); free(raw); return result;
+}
 void web_start() {
     csrf = random_hex(16);
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.stack_size = 12288; config.max_uri_handlers = 6; config.max_open_sockets = 3;
+    config.stack_size = 12288; config.max_uri_handlers = 8; config.max_open_sockets = 3;
     config.lru_purge_enable = true; config.recv_wait_timeout = 3; config.send_wait_timeout = 3;
     httpd_handle_t server = nullptr; ESP_ERROR_CHECK(httpd_start(&server, &config));
     struct Route { const char *uri; httpd_method_t method; esp_err_t (*handler)(httpd_req_t *); };
     for (auto route : {Route{"/", HTTP_GET, portal}, {"/api/status", HTTP_GET, status},
-        {"/api/settings", HTTP_POST, save}, {"/api/password", HTTP_POST, password}, {"/api/reset", HTTP_POST, reset}, {"/api/time", HTTP_POST, clock_set}}) {
+        {"/api/settings", HTTP_POST, save}, {"/api/password", HTTP_POST, password}, {"/api/reset", HTTP_POST, reset}, {"/api/time", HTTP_POST, clock_set},
+        {"/api/wifi/scan", HTTP_GET, wifi_search}, {"/api/wifi/scan", HTTP_POST, wifi_search}}) {
         httpd_uri_t uri{}; uri.uri = route.uri; uri.method = route.method; uri.handler = route.handler;
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri));
     }

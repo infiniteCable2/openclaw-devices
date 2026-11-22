@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "device_plugins/goe_profile.hpp"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -144,6 +145,22 @@ static bool wifi_fields(const cJSON *json, WifiProfile &profile, std::string &er
             return fail("DNS server must be a canonical unicast IPv4 address or blank");
     }
     if (item(json, "hidden") && !boolean(json, "hidden", profile.hidden)) return fail("Invalid hidden SSID flag");
+    if (auto devices = item(json, "goEChargerSerials")) {
+        if (!cJSON_IsArray(devices) || cJSON_GetArraySize(devices) > int(goe::max_devices_per_network))
+            return fail("At most 8 go-e chargers per WLAN");
+        profile.goe_devices.clear();
+        const cJSON *entry;
+        cJSON_ArrayForEach(entry, devices) {
+            if (!cJSON_IsString(entry) || !entry->valuestring || !goe::valid_key(entry->valuestring))
+                return fail("A go-e serial number must contain six digits");
+            std::string key = entry->valuestring;
+            for (const auto &existing : profile.goe_devices)
+                if (key == existing) return fail("Duplicate go-e serial number for this WLAN");
+            profile.goe_devices.push_back(key);
+        }
+    }
+    if (!profile.goe_devices.empty() && profile.password.empty())
+        return fail("Use a protected WLAN for approved go-e chargers");
     return true;
 }
 bool parse_settings(const cJSON *json, const Settings &previous, Settings &out, std::string &error) {
@@ -206,6 +223,8 @@ bool parse_settings(const cJSON *json, const Settings &previous, Settings &out, 
     if (!string_field(json, "mode", 16, mode) || (mode != "allowlist" && mode != "admin") ||
         !boolean(json, "scan", out.scan) || !boolean(json, "ping", out.ping)) return fail("Invalid operating mode");
     out.admin = mode == "admin";
+    if (item(json, "goEEnabled") && !boolean(json, "goEEnabled", out.goe_enabled))
+        return fail("Invalid go-e plugin flag");
     auto rules = item(json, "rules");
     if (!cJSON_IsArray(rules) || cJSON_GetArraySize(rules) > 32) return fail("At most 32 allowlist rules");
     out.rules.clear();
@@ -262,6 +281,7 @@ cJSON *settings_json(const Settings &settings, bool secrets) {
     cJSON_AddStringToObject(json, "mode", settings.admin ? "admin" : "allowlist");
     cJSON_AddBoolToObject(json, "scan", settings.scan);
     cJSON_AddBoolToObject(json, "ping", settings.ping);
+    cJSON_AddBoolToObject(json, "goEEnabled", settings.goe_enabled);
     cJSON_AddBoolToObject(json, "wifiPasswordSet", !settings.wifi_password.empty());
     if (secrets) cJSON_AddStringToObject(json, "wifiPassword", settings.wifi_password.c_str());
     cJSON *networks = cJSON_AddArrayToObject(json, "wifiNetworks");
@@ -271,6 +291,9 @@ cJSON *settings_json(const Settings &settings, bool secrets) {
         cJSON_AddStringToObject(row, "dns", profile.dns.c_str());
         cJSON_AddBoolToObject(row, "hidden", profile.hidden);
         cJSON_AddBoolToObject(row, "wifiPasswordSet", !profile.password.empty());
+        cJSON *chargers = cJSON_AddArrayToObject(row, "goEChargerSerials");
+        for (const auto &key : profile.goe_devices)
+            cJSON_AddItemToArray(chargers, cJSON_CreateString(key.c_str()));
         if (secrets) cJSON_AddStringToObject(row, "wifiPassword", profile.password.c_str());
         cJSON_AddItemToArray(networks, row);
     }

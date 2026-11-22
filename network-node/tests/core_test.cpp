@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "device_plugins/goe_profile.hpp"
 #include <cassert>
 #include <iostream>
 using namespace netnode;
@@ -69,5 +70,39 @@ int main() {
     cJSON *view = settings_json(defaults, false);
     assert(!cJSON_GetObjectItemCaseSensitive(view, "wifiPassword"));
     cJSON_Delete(view);
+    assert(!defaults.goe_enabled);
+    auto *charger_config = cJSON_Parse(R"({"ssid":"Example A","context":"node1","gateway":"wss://gateway.example.org","mode":"allowlist","scan":false,"ping":false,"rules":[],"goEEnabled":true,"wifiNetworks":[{"ssid":"Example A","wifiPassword":"example-key-a","goEChargerSerials":["000123","000124"]},{"ssid":"Example B","wifiPassword":"example-key-b","goEChargerSerials":["000125"]}]})");
+    assert(parse_settings(charger_config, Settings{}, config, error));
+    assert(config.goe_enabled && config.wifi_networks.size() == 2);
+    assert((config.wifi_networks[0].goe_devices == std::vector<std::string>{"000123", "000124"}));
+    assert((config.wifi_networks[1].goe_devices == std::vector<std::string>{"000125"}));
+    persisted = settings_json(config, true);
+    assert(parse_settings(persisted, Settings{}, restored, error));
+    assert(restored.goe_enabled && restored.wifi_networks[0].goe_devices == config.wifi_networks[0].goe_devices);
+    cJSON_Delete(persisted);
+    auto *first_network = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(charger_config, "wifiNetworks"), 0);
+    auto *serials = cJSON_GetObjectItemCaseSensitive(first_network, "goEChargerSerials");
+    cJSON_AddItemToArray(serials, cJSON_CreateString("000123"));
+    assert(!parse_settings(charger_config, Settings{}, restored, error));
+    cJSON_ReplaceItemInArray(serials, 2, cJSON_CreateString("00012x"));
+    assert(!parse_settings(charger_config, Settings{}, restored, error));
+    cJSON_DeleteItemFromArray(serials, 2);
+    cJSON_AddBoolToObject(first_network, "clearWifiPassword", true);
+    assert(!parse_settings(charger_config, Settings{}, restored, error));
+    cJSON_Delete(charger_config);
+
+    const std::vector<TxtField> charger{{"serial", "000123", true},
+        {"manufacturer", "go-e", true}, {"devicetype", "go-eCharger Gemini", true}};
+    assert(goe::inspect("go-eCharger_000123", 80, charger, "000123").match == goe::Match::identified);
+    assert(goe::inspect("go-eCharger_000124", 80, charger, "000123").match == goe::Match::serial_conflict);
+    assert(goe::inspect("go-eCharger_000123", 81, charger, "000123").match == goe::Match::service_mismatch);
+    assert(goe::inspect("go-eCharger_000123", 80, {}, "000123").match == goe::Match::name_fallback);
+    assert(goe::inspect("another-device", 80, {}, "000123").match == goe::Match::other);
+    auto conflicting = charger;
+    conflicting.push_back({"Serial", "000123", true});
+    assert(goe::inspect("go-eCharger_000123", 80, conflicting, "000123").match == goe::Match::serial_conflict);
+    conflicting = charger;
+    conflicting[1].value = "Example Manufacturer";
+    assert(goe::inspect("go-eCharger_000123", 80, conflicting, "000123").match == goe::Match::service_mismatch);
     std::cout << "policy, configuration, target and credential-redaction checks passed\n";
 }

@@ -23,12 +23,14 @@
 <div class="checks"><label><input id="showWifiPassword" type="checkbox"> Eingabe anzeigen</label><label><input id="hiddenWifi" type="checkbox"> Versteckte SSID</label></div>
 <label><input id="clearWifiPassword" type="checkbox"> Offenes WLAN ohne Passwort</label>
 <label>DNS-Server für dieses WLAN (optional, IPv4)<input id="dns" maxlength="15" autocomplete="off" placeholder="Automatisch aus dem WLAN"><small>Leer übernimmt DNS automatisch. Die Einstellung reist mit diesem WLAN-Profil.</small></label>
+<label>Freigegebene go-e-Seriennummern<input id="goEChargerSerials" maxlength="63" autocomplete="off" spellcheck="false"><small>Maximal acht sechsstellige Seriennummern, durch Komma getrennt. Die Freigaben gelten für dieses geschützte WLAN.</small></label>
 <label><input id="preferWifi" type="checkbox" checked> Als bevorzugtes WLAN verwenden</label>
 <div class="actions"><button id="storeWifi" type="button" class="secondary">WLAN übernehmen</button><button id="newWifi" type="button" class="secondary">Eingabe leeren</button></div></div>
 <p>Ohne WLAN-Verbindung erscheint nach etwa 30 Sekunden der geschützte Setup-Hotspot: <strong>http://192.168.4.1</strong>. Sein Sticker-Passwort kann mit dem USB-Programm ausgelesen werden und bleibt bei einem Werksreset erhalten.</p></section>
 <section class="card"><h2>OpenClaw-Zugang</h2><div class="grid"><label>Netzwerkkontext<input id="context" required pattern="[a-z0-9_-]+" maxlength="48"><small>Zum Beispiel node1. „local“ ist für den OpenClaw-Rechner reserviert.</small></label><label>Gateway-Adresse<input id="gateway" placeholder="wss://gateway.example.org" maxlength="256" autocomplete="off"><small>Verschlüsselte Verbindung mit gültigem Serverzertifikat.</small></label></div><label>OpenClaw-Setup-Code<input id="setupCode" type="password" maxlength="2048" autocomplete="off"><small>Für die Erstkopplung oder erneute Anmeldung. Die URL im Code muss mit der Gateway-Adresse übereinstimmen. Bereits gekoppelte Geräte benötigen keinen neuen Code.</small></label><details><summary>Eigene Zertifizierungsstelle</summary><label>CA-Zertifikat (PEM)<textarea id="ca" maxlength="4096" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"></textarea><small>Leer verwendet die eingebauten öffentlichen Zertifizierungsstellen.</small></label></details></section>
 <section class="card" id="clockCard" hidden><h2>Gerätezeit</h2><p>Für die Prüfung der OpenClaw-Zertifikate benötigt das Gerät die aktuelle Uhrzeit. Ohne erreichbaren Zeitserver kannst du sie aus deinem Browser übernehmen.</p><button id="setClock" class="secondary" type="button">Uhrzeit vom Browser übernehmen</button></section>
 <section class="card"><h2>Netzwerkfreigaben</h2><label>Betriebsmodus<select id="mode"><option value="allowlist">Allowlist · nur freigegebene Ziele</option><option value="admin">Admin · alle erreichbaren TCP-/UDP-Ziele</option></select></label><div class="checks"><label><input id="ping" type="checkbox"> ICMP-Ping erlauben</label><label><input id="scan" type="checkbox"> TCP-Portscan erlauben</label></div><p id="modeHint">Eine leere Allowlist sperrt alle Ziele. Ping und Scan benötigen zusätzlich passende Zielregeln. OpenClaw verwaltet die Rechte der einzelnen Agenten.</p><div class="rules"><table><thead><tr><th>IPv4 / CIDR</th><th>Protokoll</th><th>Port von</th><th>bis</th><th>MAC optional</th><th></th></tr></thead><tbody id="rules"></tbody></table></div><div class="actions"><button id="addRule" class="secondary" type="button">Regel hinzufügen</button></div><small>ICMP verwendet Port 0. MAC-Pins gelten nur für einzelne Ziele (/32) im lokalen WLAN-Netz und setzen eine passende ARP-Zuordnung voraus.</small></section>
+<section class="card"><h2>Geräte-Plugins</h2><label><input id="goEEnabled" type="checkbox"> go-e-Ladestatus lesen</label><p>OpenClaw kann den Ladestatus der im verbundenen WLAN freigegebenen go-e-Geräte anzeigen. Die Seriennummern stehen im jeweiligen WLAN-Profil.</p></section>
 <button id="save" type="submit">Speichern und neu starten</button>
 </form>
 <section class="card"><h2>Web-Passwort ändern</h2><form id="passwordForm"><div class="grid"><label>Aktuelles Passwort<input id="currentPassword" required type="password" autocomplete="current-password" maxlength="72"></label><label>Neues Passwort<input id="newPassword" required type="password" autocomplete="new-password" minlength="10" maxlength="72"><small>10–72 druckbare ASCII-Zeichen. Der Benutzername bleibt admin.</small></label></div><button type="submit" class="secondary">Passwort ändern</button></form></section>
@@ -60,7 +62,7 @@ function updateStatus(data){
 async function statusData(){const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error('Status nicht erreichbar. Anmeldung oder Verbindung prüfen.');return response.json();}
 async function load(){
   const data=await statusData();csrf=data.csrf;
-  for(const name of ['context','gateway','ca','mode'])$(name).value=data[name];for(const name of ['scan','ping'])$(name).checked=data[name];
+  for(const name of ['context','gateway','ca','mode'])$(name).value=data[name];for(const name of ['scan','ping','goEEnabled'])$(name).checked=!!data[name];
   profiles=data.wifiNetworks||[];preferred=data.ssid;renderProfiles();
   $('rules').replaceChildren();data.rules.forEach(addRule);updateStatus(data);dirty=false;
 }
@@ -76,8 +78,8 @@ function renderProfiles(){
   }
 }
 function passwordHint(){const profile=profiles.find(p=>p.ssid===$('ssid').value);$('wifiHint').textContent=profile?.wifiPasswordSet?'Leer lassen, um das Passwort genau dieser SSID zu behalten.':'Für ein geschütztes WLAN 8–63 Bytes eingeben; sonst „Offenes WLAN“ wählen.';}
-function clearEditor(){for(const name of ['ssid','wifiPassword','dns'])$(name).value='';for(const name of ['hiddenWifi','clearWifiPassword','showWifiPassword'])$(name).checked=false;$('wifiPassword').type='password';$('preferWifi').checked=true;$('wifiEditorTitle').textContent='WLAN hinzufügen';editorDirty=false;passwordHint();}
-function editWifi(profile){clearEditor();$('ssid').value=profile.ssid;$('dns').value=profile.dns||'';$('hiddenWifi').checked=!!profile.hidden;$('clearWifiPassword').checked=!profile.wifiPasswordSet;$('wifiPassword').value=profile.wifiPassword||'';$('preferWifi').checked=preferred===profile.ssid;$('wifiEditorTitle').textContent='WLAN bearbeiten';passwordHint();}
+function clearEditor(){for(const name of ['ssid','wifiPassword','dns','goEChargerSerials'])$(name).value='';for(const name of ['hiddenWifi','clearWifiPassword','showWifiPassword'])$(name).checked=false;$('wifiPassword').type='password';$('preferWifi').checked=true;$('wifiEditorTitle').textContent='WLAN hinzufügen';editorDirty=false;passwordHint();}
+function editWifi(profile){clearEditor();$('ssid').value=profile.ssid;$('dns').value=profile.dns||'';$('goEChargerSerials').value=(profile.goEChargerSerials||[]).join(', ');$('hiddenWifi').checked=!!profile.hidden;$('clearWifiPassword').checked=!profile.wifiPasswordSet;$('wifiPassword').value=profile.wifiPassword||'';$('preferWifi').checked=preferred===profile.ssid;$('wifiEditorTitle').textContent='WLAN bearbeiten';passwordHint();}
 function stageWifi(){
   const ssid=$('ssid').value;if(!ssid)throw Error('Bitte eine SSID eingeben.');if(new TextEncoder().encode(ssid).length>32||/[\x00-\x1f\x7f]/.test(ssid))throw Error('SSID: maximal 32 UTF-8-Bytes ohne Steuerzeichen.');
   const old=profiles.find(p=>p.ssid===ssid),password=$('wifiPassword').value,open=$('clearWifiPassword').checked;
@@ -85,16 +87,20 @@ function stageWifi(){
   if(open&&password)throw Error('Für ein offenes WLAN bitte die Passworteingabe leeren.');
   if(!old&&profiles.length>=8)throw Error('Maximal acht WLANs. Bitte zuerst ein Profil entfernen.');
   const dns=$('dns').value.trim();if(dns&&!/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(dns))throw Error('DNS benötigt eine IPv4-Adresse.');
-  const profile={ssid,dns,hidden:$('hiddenWifi').checked,wifiPasswordSet:!open&&(!!password||!!old?.wifiPasswordSet),clearWifiPassword:open};
+  const serialInput=$('goEChargerSerials').value.trim();
+  const goEChargerSerials=serialInput?serialInput.split(',').map(value=>value.trim()):[];
+  if(goEChargerSerials.length>8||goEChargerSerials.some(value=>!/^\d{6}$/.test(value))||new Set(goEChargerSerials).size!==goEChargerSerials.length)throw Error('go-e: Bis zu acht unterschiedliche sechsstellige Seriennummern eingeben.');
+  if(open&&goEChargerSerials.length)throw Error('go-e-Freigaben benötigen ein geschütztes WLAN.');
+  const profile={ssid,dns,goEChargerSerials,hidden:$('hiddenWifi').checked,wifiPasswordSet:!open&&(!!password||!!old?.wifiPasswordSet),clearWifiPassword:open};
   if(!open&&password)profile.wifiPassword=password;else if(!open&&old?.wifiPassword)profile.wifiPassword=old.wifiPassword;
   if(old)profiles[profiles.indexOf(old)]=profile;else profiles.push(profile);
   if($('preferWifi').checked||!preferred)preferred=ssid;dirty=true;clearEditor();renderProfiles();
 }
 $('storeWifi').onclick=()=>{try{stageWifi();notice('WLAN übernommen. Mit „Speichern und neu starten“ auf das Gerät schreiben.');}catch(error){notice(error.message);}};
 $('newWifi').onclick=clearEditor;
-for(const name of ['ssid','wifiPassword','dns','hiddenWifi','clearWifiPassword','preferWifi'])$(name).addEventListener('input',()=>{editorDirty=true;passwordHint();});
+for(const name of ['ssid','wifiPassword','dns','goEChargerSerials','hiddenWifi','clearWifiPassword','preferWifi'])$(name).addEventListener('input',()=>{editorDirty=true;passwordHint();});
 $('showWifiPassword').onchange=()=>{$('wifiPassword').type=$('showWifiPassword').checked?'text':'password';};
-$('ssid').addEventListener('input',()=>{$('dns').value='';$('wifiPassword').value='';$('clearWifiPassword').checked=false;passwordHint();});
+$('ssid').addEventListener('input',()=>{$('dns').value='';$('wifiPassword').value='';$('goEChargerSerials').value='';$('clearWifiPassword').checked=false;passwordHint();});
 $('foundWifi').onchange=()=>{
   if(!$('foundWifi').value)return;if(editorDirty){$('foundWifi').value='';return notice('Bitte die WLAN-Eingabe zuerst übernehmen oder leeren.');}
   const option=$('foundWifi').selectedOptions[0],profile=profiles.find(p=>p.ssid===option.value);
@@ -118,7 +124,7 @@ $('setClock').onclick=async()=>{try{await post('/api/time',{seconds:Math.floor(D
 $('settingsForm').onsubmit=async event=>{event.preventDefault();$('save').disabled=true;try{
   if(editorDirty)stageWifi();
   const value={ssid:preferred,wifiNetworks:profiles.map(({wifiPasswordSet,...profile})=>profile)};for(const name of ['context','gateway','setupCode','ca','mode'])value[name]=$(name).value;
-  for(const name of ['scan','ping'])value[name]=$(name).checked;
+  for(const name of ['scan','ping','goEEnabled'])value[name]=$(name).checked;
   value.rules=Array.from($('rules').children,row=>{const rule={};for(const input of row.querySelectorAll('[data-field]'))rule[input.dataset.field]=input.type==='number'?Number(input.value):input.value;return rule;});
   await post('/api/settings',value);saving=true;dirty=false;profiles.forEach(p=>delete p.wifiPassword);$('wifiPassword').value='';$('setupCode').value='';
 }catch(error){notice(error.message);$('save').disabled=false;}};

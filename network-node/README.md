@@ -90,6 +90,14 @@ Gateway as part of a build check.
 
 ## First setup
 
+For an approved go-e charger, enable **go-e-Ladestatus lesen** under
+**Geräte-Plugins** and add its six-digit serial to the corresponding protected
+WLAN profile. Enter up to eight comma-separated serials per WLAN, including
+leading zeroes. Saving applies the settings through the existing node reboot.
+Assign each charger separately in the OpenClaw inventory to the paired node.
+See the [managed-device contract](docs/managed-device-read.md) for operation
+and identity checks.
+
 1. Read the unique sticker credentials using the [USB tool](tools/README.md).
    There is no shared factory password. Record the SSID/password on the device;
    both remain valid after an application factory reset.
@@ -236,7 +244,7 @@ cc -DCJSON_NESTING_LIMIT=16 -DCJSON_CIRCULAR_LIMIT=16 \
   -c managed_components/espressif__cjson/cJSON/cJSON.c -o <temp>/cjson.o
 c++ -std=c++17 -Wall -Wextra -Werror -I main \
   -I managed_components/espressif__cjson/cJSON \
-  main/core.cpp tests/core_test.cpp <temp>/cjson.o -o <temp>/core-test
+  main/core.cpp main/device_plugins/goe_profile.cpp tests/core_test.cpp <temp>/cjson.o -o <temp>/core-test
 <temp>/core-test
 # Repeat that compile/run with tests/wifi_profiles_test.cpp instead.
 c++ -std=c++17 -Wall -Wextra -Werror -I tests/fakes -I main \

@@ -22,11 +22,17 @@ snapshots. The Android consumer provides its connected-network identity,
 network-bound DNS-SD and HTTP, and rechecks phone and session grants. Element
 keeps the Matrix carrier, settings, pairing and Android permissions.
 
-ESP32 modules use the existing firmware network and local policy owners. A
-future firmware build can compile a reviewed C++ device profile for the
-selected board and advertise the same operation after its contract checks
-pass. Current ESP32 firmware advertises the documented transport and probe
-commands, with their own authority rules.
+Both stationary ESP board profiles share the same compiled device plugin
+registry. On startup the firmware advertises `network.device.read.v2` if
+local discovery is available and an enabled plugin has at least one approved
+device. It checks the actual WLAN profile and its device grant on each call.
+Stationary nodes store these grants in their setup portal. Mobile clients
+manage their own equivalent settings and network identity.
+
+The ESP network runtime supplies station-bound DNS-SD and bounded HTTP reads.
+The compiled device profile supplies service criteria, fixed request and
+response identity checks. The go-e address hint is kept in memory for up to
+five minutes and scoped to the device key and current station link.
 
 ## go-e read
 
@@ -49,5 +55,6 @@ The legacy `network.device.read` compatibility path selects a single
 approved device from local configuration. The v2 operation carries the exact
 configured key and remains suitable for multiple distinct chargers.
 
-The JVM build's `contractTest` task checks identity, TXT snapshot isolation,
-conflict rejection and compatibility with a name-only announcement.
+The JVM `contractTest` and C++ host checks cover identity, conflict rejection
+and a name-only announcement. The JVM test also covers TXT snapshot isolation.
+The firmware host and portal tests cover local grants on separate WLANs.

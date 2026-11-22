@@ -46,7 +46,7 @@ test('saved networks: preserve credentials, per-profile DNS, preferred selection
     await f.page.locator('#dns').fill('198.51.100.53');await f.page.locator('#preferWifi').check();await f.page.locator('#storeWifi').click();
     await f.page.locator('.profile').nth(0).getByText('Entfernen').click();await f.page.locator('#save').click();
     const body=f.posts.find(p=>p.path==='/api/settings').body;
-    assert.equal(body.ssid,'Hidden Example');assert.deepEqual(body.wifiNetworks,[{ssid:'Hidden Example',dns:'198.51.100.53',hidden:true,clearWifiPassword:false}]);
+    assert.equal(body.ssid,'Hidden Example');assert.deepEqual(body.wifiNetworks,[{ssid:'Hidden Example',dns:'198.51.100.53',goEChargerSerials:[],hidden:true,clearWifiPassword:false}]);
     assert.equal(body.gateway,'wss://gateway.example.org');assert.deepEqual(f.errors,[]);
   }finally{await f.context.close();}
 });
@@ -55,7 +55,7 @@ test('manual hidden SSID and automatic staging on save',async()=>{
     await f.page.locator('#ssid').fill('Hidden New Example');await f.page.locator('#wifiPassword').fill('example-new-secret');await f.page.locator('#hiddenWifi').check();
     await f.page.locator('#save').click();const body=f.posts[0].body;
     assert.equal(body.ssid,'Hidden New Example');assert.equal(body.wifiNetworks.length,3);
-    assert.deepEqual(body.wifiNetworks[2],{ssid:'Hidden New Example',dns:'',hidden:true,clearWifiPassword:false,wifiPassword:'example-new-secret'});
+    assert.deepEqual(body.wifiNetworks[2],{ssid:'Hidden New Example',dns:'',goEChargerSerials:[],hidden:true,clearWifiPassword:false,wifiPassword:'example-new-secret'});
     assert.deepEqual(f.errors,[]);
   }finally{await f.context.close();}
 });
@@ -71,6 +71,24 @@ test('deleting the last WLAN saves an empty list and no preferred SSID',async()=
   const f=await fixture();try{
     await f.page.locator('.profile').nth(0).getByText('Entfernen').click();await f.page.locator('.profile').nth(0).getByText('Entfernen').click();await f.page.locator('#save').click();
     assert.deepEqual(f.posts[0].body.wifiNetworks,[]);assert.equal(f.posts[0].body.ssid,'');
+  }finally{await f.context.close();}
+});
+test('the go-e plugin keeps separate charger keys on each protected WLAN',async()=>{
+  const wifiNetworks=status().wifiNetworks;
+  wifiNetworks[1].goEChargerSerials=['000999'];
+  const f=await fixture({status:{wifiNetworks}});try{
+    await f.page.locator('#goEEnabled').check();
+    await f.page.locator('.profile').nth(0).getByText('Bearbeiten').click();
+    await f.page.locator('#goEChargerSerials').fill('000123, 000123');
+    await f.page.locator('#storeWifi').click();
+    assert.match(await f.page.locator('#notice').textContent(),/unterschiedliche/);
+    await f.page.locator('#goEChargerSerials').fill('000123, 000456');
+    await f.page.locator('#storeWifi').click();
+    await f.page.locator('#save').click();
+    const {body}=f.posts[0];
+    assert.equal(body.goEEnabled,true);
+    assert.deepEqual(body.wifiNetworks.map(profile=>profile.goEChargerSerials),[['000123','000456'],['000999']]);
+    assert.deepEqual(f.errors,[]);
   }finally{await f.context.close();}
 });
 test('full list can free one slot without losing a pending new WLAN',async()=>{

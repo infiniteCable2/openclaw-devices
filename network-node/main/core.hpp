@@ -23,6 +23,7 @@ struct Rule {
 struct WifiProfile {
     std::string ssid, password, dns;
     bool hidden = false;
+    std::vector<std::string> goe_devices{};
 };
 struct Settings {
     // Preferred profile projection retained for older local clients/firmware.
@@ -32,6 +33,7 @@ struct Settings {
     std::string gateway, ca;
     bool admin = false;
     bool scan = false, ping = false;
+    bool goe_enabled = false;
     std::vector<Rule> rules;
 };
 bool ipv4(const std::string &text, uint32_t &address);

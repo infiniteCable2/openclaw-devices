@@ -1,5 +1,6 @@
 #include "settings.hpp"
 #include "network.hpp"
+#include "device_plugins/managed_device.hpp"
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -335,6 +336,10 @@ void network_invalidate() {
     for (auto &stream : streams) stream.close();
     if (probe) probe->cancel = true;
 }
+uint32_t network_generation() {
+    Lock guard;
+    return epoch;
+}
 static void janitor(void *) {
     for (;;) {
         { Lock guard;
@@ -356,5 +361,6 @@ void register_network_commands(esp_openclaw_node_handle_t node) {
     ESP_ERROR_CHECK(esp_openclaw_node_register_command_v2(node, &transport_cmd));
     transport_cmd.name = "network.probe.v1"; transport_cmd.context = reinterpret_cast<void *>(1);
     ESP_ERROR_CHECK(esp_openclaw_node_register_command_v2(node, &transport_cmd));
+    register_managed_device_plugins(node);
 }
 }

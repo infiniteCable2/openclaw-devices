@@ -5,6 +5,10 @@ OpenClaw node commands. Device pairing, approved command surface and Gateway
 command policy must all allow them. Generic node pairing alone is insufficient.
 No existing OpenClaw protocol version or universal core tool is changed.
 
+The [managed device read contract](managed-device-read.md) is a separate
+capability for plugins such as go-e. A device advertises it only when a
+plugin and the matching network adapter are available in that build.
+
 ## Host authority
 
 The host owns per-agent allowed contexts and a default context (`local` unless

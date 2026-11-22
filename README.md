@@ -8,6 +8,10 @@ setup/recovery portal. Firmware and a reusable protocol client are included;
 hardware qualification and host-side agent/context integration remain explicit
 acceptance steps.
 
+The [managed device plugin contract](network-node/docs/managed-device-read.md)
+defines target-bound operations for app and firmware nodes. The JVM profile
+library in `network-node/jvm` includes the go-e read profile.
+
 Server-side OpenClaw integration belongs in the OpenClaw fork or `openclaw-extensions`, not inside a device image. Device clients transport media and device events; OpenClaw remains responsible for agent sessions, tools, routing and authorization. Legacy Voicecore and Ghostbox sources are references only, not runtime dependencies.
 
 Do not commit pairing credentials, certificates, local recordings, model downloads or hardware-specific secrets. Machine-local `AGENTS.md` instructions and `.local/` data are ignored. A new device is not trusted merely because it is on the LAN: it must be enrolled, bound to an allowed agent and revocable.

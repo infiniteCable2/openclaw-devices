@@ -13,6 +13,10 @@ public final class GoEChargerProfile {
     public static final String SERVICE_TYPE = "_http._tcp";
     public static final int HTTP_PORT = 80;
     public static final String STATUS_PATH = "/api/status?filter=sse,car,alw,acu";
+    public static final List<String> TELEMETRY_FIELDS = List.of(
+            "modelStatus", "nrg", "pha", "fsp", "psm", "cus", "wh", "cdi", "amp", "cbl", "dwo", "whg", "whs",
+            "whb", "who", "fhz", "avgfhz", "gsa", "err", "typ", "fwv", "tma", "adi", "lck", "ffb", "eto");
+    public static final String TELEMETRY_PATH = STATUS_PATH + "," + String.join(",", TELEMETRY_FIELDS);
     public static final long MAX_STATUS_BYTES = 8192;
 
     private static final String INSTANCE_PREFIX = "go-eCharger_";

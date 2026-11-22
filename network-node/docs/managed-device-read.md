@@ -51,6 +51,11 @@ fallback. The node uses a bounded GET to
 `sse` to equal the configured key before returning a status or retaining an
 address hint. Each cached-address read confirms the same identity.
 
+Nodes that supply `telemetry` expand the same fixed GET with the documented
+charging, grid and device fields from the go-e profile. Their response keeps
+the original charging state, allowed flag and current fields. The telemetry
+object excludes identifiers, addresses and the vendor's export link.
+
 The legacy `network.device.read` compatibility path selects a single
 approved device from local configuration. The v2 operation carries the exact
 configured key and remains suitable for multiple distinct chargers.

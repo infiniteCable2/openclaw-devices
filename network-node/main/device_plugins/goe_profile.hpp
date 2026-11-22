@@ -11,6 +11,10 @@ inline constexpr char service[] = "_http";
 inline constexpr char protocol[] = "_tcp";
 inline constexpr uint16_t port = 80;
 inline constexpr char status_path[] = "/api/status?filter=sse,car,alw,acu";
+inline constexpr const char *telemetry_fields[] = {
+    "modelStatus", "nrg", "pha", "fsp", "psm", "cus", "wh", "cdi", "amp", "cbl", "dwo", "whg", "whs",
+    "whb", "who", "fhz", "avgfhz", "gsa", "err", "typ", "fwv", "tma", "adi", "lck", "ffb", "eto",
+};
 inline constexpr size_t status_max_bytes = 8192;
 inline constexpr size_t max_devices_per_network = 8;
 

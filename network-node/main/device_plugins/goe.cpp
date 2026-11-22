@@ -100,7 +100,15 @@ const cJSON *unique_field(const cJSON *object, const char *key) {
 esp_err_t read_identified_status(const ManagedDeviceLink &link, uint32_t address, const std::string &key,
                                  int64_t deadline, char **payload, esp_openclaw_node_error_t *error) {
     auto fail = [error](const char *code, const char *message) { return managed_device_error(error, code, message); };
-    auto read = read_local_json(link, address, goe::port, goe::status_path, goe::status_max_bytes, deadline);
+    static const auto status_target = [] {
+        std::string path = goe::status_path;
+        for (const auto *field : goe::telemetry_fields) {
+            path += ',';
+            path += field;
+        }
+        return path;
+    }();
+    auto read = read_local_json(link, address, goe::port, status_target.c_str(), goe::status_max_bytes, deadline);
     if (!link.current() || read.error == DeviceNetworkError::wifi_changed)
         return fail("GO_E_WIFI_CHANGED", "The approved network changed");
     switch (read.error) {
@@ -136,6 +144,17 @@ esp_err_t read_identified_status(const ManagedDeviceLink &link, uint32_t address
     const auto *allowed = unique_field(body.get(), "alw");
     if (cJSON_IsBool(allowed)) cJSON_AddBoolToObject(reply.get(), "chargingAllowed", cJSON_IsTrue(allowed));
     if (integer(body.get(), "acu", 0, 32, amps)) cJSON_AddNumberToObject(reply.get(), "allowedCurrentAmps", amps);
+    auto *telemetry = cJSON_AddObjectToObject(reply.get(), "telemetry");
+    if (!telemetry) return ESP_ERR_NO_MEM;
+    for (const auto *field : goe::telemetry_fields) {
+        const auto *value = unique_field(body.get(), field);
+        if (!value) continue;
+        auto *copy = cJSON_Duplicate(value, true);
+        if (!copy || !cJSON_AddItemToObject(telemetry, field, copy)) {
+            cJSON_Delete(copy);
+            return ESP_ERR_NO_MEM;
+        }
+    }
     if (!link.current()) return fail("GO_E_WIFI_CHANGED", "The approved network changed");
     *payload = cJSON_PrintUnformatted(reply.get());
     return *payload ? ESP_OK : ESP_ERR_NO_MEM;
